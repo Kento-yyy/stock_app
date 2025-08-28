@@ -514,9 +514,9 @@
                 }
                 if (isFinite(prevUsd365) && prevUsd365>0) usdYoY = (priceUsd - prevUsd365)/prevUsd365;
               }
-              if (cellUsdDoD && isFinite(usdDoD)) setPctCell(cellUsdDoD, usdDoD);
-              if (cellUsdMoM && isFinite(usdMoM)) setPctCell(cellUsdMoM, usdMoM);
-              if (cellUsdYoY && isFinite(usdYoY)) setPctCell(cellUsdYoY, usdYoY);
+              if (cellUsdDoD) setPctCell(cellUsdDoD, (isFinite(usdDoD) ? usdDoD : NaN));
+              if (cellUsdMoM) setPctCell(cellUsdMoM, (isFinite(usdMoM) ? usdMoM : NaN));
+              if (cellUsdYoY) setPctCell(cellUsdYoY, (isFinite(usdYoY) ? usdYoY : NaN));
             }
             // JPY block
             if (isFinite(priceJpy)){
@@ -538,9 +538,9 @@
                 if (!isFinite(prevJ365) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ365 = q.prevClose365d;
                 if (isFinite(prevJ365) && prevJ365>0) jpyYoY = (priceJpy - prevJ365)/prevJ365;
               }
-              if (cellJpyDoD && isFinite(jpyDoD)) setPctCell(cellJpyDoD, jpyDoD);
-              if (cellJpyMoM && isFinite(jpyMoM)) setPctCell(cellJpyMoM, jpyMoM);
-              if (cellJpyYoY && isFinite(jpyYoY)) setPctCell(cellJpyYoY, jpyYoY);
+              if (cellJpyDoD) setPctCell(cellJpyDoD, (isFinite(jpyDoD) ? jpyDoD : NaN));
+              if (cellJpyMoM) setPctCell(cellJpyMoM, (isFinite(jpyMoM) ? jpyMoM : NaN));
+              if (cellJpyYoY) setPctCell(cellJpyYoY, (isFinite(jpyYoY) ? jpyYoY : NaN));
             }
             if(cellUsdV){ var v = numberFromCell(cellUsdV); if(isFinite(v)) sumUsd += v; }
             if(cellJpyV){ var w = numberFromCell(cellJpyV); if(isFinite(w)) sumJpy += w; }
