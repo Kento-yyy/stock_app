@@ -315,29 +315,11 @@
           syms = Array.from(new Set(syms.map(function(s){return s.toUpperCase();})));
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
-          var jpxSyms = syms.filter(function(s){ return /\.T$/i.test(s); });
-          var nonJpxSyms = syms.filter(function(s){ return !/\.T$/i.test(s); });
-          // 1) Fetch non-JPX via proxy or Yahoo
-          if (nonJpxSyms.length) {
-            try { quotes = await fetchViaProxy(nonJpxSyms); } catch(e) {}
-            if (!Object.keys(quotes).length) {
-              try { quotes = await fetchYahoo(nonJpxSyms); } catch(e) {}
-            }
-          }
-          // 2) Fetch JPX symbols from Stooq as the source of truth
-          if (jpxSyms.length) {
-            try {
-              var qJpx = await fetchStooq(jpxSyms);
-              jpxSyms.forEach(function(s){ if (qJpx && qJpx[s]) quotes[s] = qJpx[s]; });
-            } catch(ej) {}
-          }
-          // 3) Backfill any remaining missing symbols (rare)
-          var missing = syms.filter(function(s){ return !quotes[s]; });
-          if (missing.length) {
-            try {
-              var q2 = await fetchStooq(missing);
-              missing.forEach(function(s){ if (q2 && q2[s]) quotes[s] = q2[s]; });
-            } catch(e2) {}
+          // Yahoo first
+          try { quotes = await fetchYahoo(syms); } catch(e) {}
+          // Fallback to proxy (which itself tries Yahoo first) if Yahoo failed
+          if (!Object.keys(quotes).length) {
+            try { quotes = await fetchViaProxy(syms); } catch(e2) {}
           }
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
