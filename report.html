@@ -134,6 +134,9 @@
     </script>
     <script>
     (function(){
+      var PF_DEBUG = false;
+      try { PF_DEBUG = String(localStorage.getItem('PF_DEBUG')) === '1'; } catch(e) {}
+      function dlog(){ if (PF_DEBUG) { try { console.debug.apply(console, arguments); } catch(e) {} } }
       function nowStr(){
         var d = new Date();
         var pad = (n)=> String(n).padStart(2,'0');
@@ -166,7 +169,8 @@
         var base = getApiBase();
         if(!base) throw new Error('no api');
         var qs = encodeURIComponent(symbols.join(','));
-        var url1 = base + (base.includes('?') ? '&' : '?') + 'symbols=' + qs;
+        var sep = base.includes('?') ? '&' : '?';
+        var url1 = base + sep + 'symbols=' + qs + '&fallback=stooq';
         var res1 = await fetch(url1, {cache:'no-store'});
         if (res1.ok) {
           try {
@@ -176,7 +180,7 @@
           } catch(_) {}
         }
         // Fallback to 's=' query param
-        var url2 = base + (base.includes('?') ? '&' : '?') + 's=' + qs;
+        var url2 = base + sep + 's=' + qs + '&fallback=stooq';
         var res2 = await fetch(url2, {cache:'no-store'});
         if(!res2.ok) throw new Error('proxy HTTP '+res2.status);
         var j2 = await res2.json();
