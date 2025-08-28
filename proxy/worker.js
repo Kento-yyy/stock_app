@@ -23,55 +23,47 @@ export default {
 
         const preferStooq = url.searchParams.get('prefer') === 'stooq' || url.searchParams.get('source') === 'stooq';
         const useFallback = url.searchParams.get('fallback') === 'stooq';
-        const debug = url.searchParams.get('debug') === '1';
-        const meta = debug ? { symbols, preferStooq, useFallback } : undefined;
 
         let quotes = {};
         if (preferStooq) {
           // Stooq first
           try {
-            quotes = await fetchStooq(symbols, debug);
-            if (meta) meta.stooqCount = Object.keys(quotes).length;
+            quotes = await fetchStooq(symbols);
           } catch (e) {}
           // Fill missing from Yahoo (only for non-.T symbols to avoid JP mis-currency)
           const missing = symbols.filter(s => !quotes[s]);
           const missingNonJpx = missing.filter(s => !/\.T$/i.test(s));
           if (missingNonJpx.length) {
             try {
-              const add = await fetchYahoo(missingNonJpx, debug);
+              const add = await fetchYahoo(missingNonJpx);
               for (const s of missingNonJpx) { if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
-              if (meta) meta.yahooFilled = (meta.yahooFilled || 0) + Object.keys(add).length;
             } catch (e) {}
           }
           // Still missing? allow Yahoo fill even for .T to avoid empty quotes
           const missingAll = symbols.filter(s => !quotes[s]);
           if (missingAll.length) {
             try {
-              const addAll = await fetchYahoo(missingAll, debug);
+              const addAll = await fetchYahoo(missingAll);
               for (const s of missingAll) { if (addAll[s] && quotes[s] == null) quotes[s] = addAll[s]; }
-              if (meta) meta.yahooFilledAll = (meta.yahooFilledAll || 0) + Object.keys(addAll).length;
             } catch (e) {}
           }
           // Always ensure USDJPY=X is present by Yahoo if Stooq didn't provide it
           if (!quotes['USDJPY=X'] && symbols.includes('USDJPY=X')) {
             try {
-              const y = await fetchYahoo(['USDJPY=X'], debug);
+              const y = await fetchYahoo(['USDJPY=X']);
               if (y['USDJPY=X']) quotes['USDJPY=X'] = y['USDJPY=X'];
-              if (meta) meta.usdjpyFilled = true;
             } catch (e) {}
           }
           // If still empty, fallback to Yahoo for all symbols (last resort)
           if (Object.keys(quotes).length === 0) {
             try {
-              quotes = await fetchYahoo(symbols, debug);
-              if (meta) meta.yahooFallbackAll = true;
+              quotes = await fetchYahoo(symbols);
             } catch (e) {}
           }
         } else {
           // Yahoo first
           try {
-            quotes = await fetchYahoo(symbols, debug);
-            if (meta) meta.yahooCount = Object.keys(quotes).length;
+            quotes = await fetchYahoo(symbols);
           } catch (e) {
             // swallow; may fallback
           }
@@ -80,11 +72,10 @@ export default {
             const missing = symbols.filter(s => !quotes[s]);
             if (missing.length) {
               try {
-                const add = await fetchStooq(missing, debug);
+                const add = await fetchStooq(missing);
                 for (const s of missing) {
                   if (add[s] && quotes[s] == null) quotes[s] = add[s];
                 }
-                if (meta) meta.stooqFilled = (meta.stooqFilled || 0) + Object.keys(add).length;
               } catch (e) {}
             }
           }
@@ -118,8 +109,7 @@ export default {
           }
         }
 
-        const body = meta ? { quotes, meta } : { quotes };
-        return json(body, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
+        return json({ quotes }, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
       }
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -142,7 +132,7 @@ function json(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj), { status, headers: corsHeaders(extraHeaders) });
 }
 
-async function fetchYahoo(symbols, debug = false) {
+async function fetchYahoo(symbols) {
   if (!symbols.length) return {};
   const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
   const urls = [
@@ -257,7 +247,7 @@ function parseStooqCSV(text) {
   return out;
 }
 
-async function fetchStooq(symbols, debug = false) {
+async function fetchStooq(symbols) {
   if (!symbols.length) return {};
   const { list: stooqSyms, map: m } = buildStooqMap(symbols);
   const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'text/csv,*/*;q=0.1' };

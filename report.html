@@ -30,9 +30,7 @@
         
     <script>
     (function(){
-      var PF_DEBUG = false;
-      try { PF_DEBUG = String(localStorage.getItem('PF_DEBUG')) === '1'; } catch(e) {}
-      function dlog(){ if (PF_DEBUG) { try { console.debug.apply(console, arguments); } catch(e) {} } }
+      
       function fmtUSD(n){ return (isNaN(n) ? '' : n.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})); }
       function fmtJPY(n){ return (isNaN(n) ? '' : Math.round(n).toLocaleString()); }
       function getCellValue(cell, type){
@@ -134,9 +132,7 @@
     </script>
     <script>
     (function(){
-      var PF_DEBUG = false;
-      try { PF_DEBUG = String(localStorage.getItem('PF_DEBUG')) === '1'; } catch(e) {}
-      function dlog(){ if (PF_DEBUG) { try { console.debug.apply(console, arguments); } catch(e) {} } }
+      
       function nowStr(){
         var d = new Date();
         var pad = (n)=> String(n).padStart(2,'0');
@@ -193,7 +189,7 @@
         var sep = base.includes('?') ? '&' : '?';
         // Prefer Stooq at the worker, and let it fill missing via Yahoo
         var url1 = base + sep + 'symbols=' + qs + '&prefer=stooq';
-        dlog('[PF] fetchViaProxy url1', url1);
+        
         var res1 = await fetch(url1, {cache:'no-store'});
         if (res1.ok) {
           try {
@@ -204,12 +200,19 @@
         }
         // Fallback to 's=' query param
         var url2 = base + sep + 's=' + qs + '&prefer=stooq';
-        dlog('[PF] fetchViaProxy url2', url2);
+        
         var res2 = await fetch(url2, {cache:'no-store'});
         if(!res2.ok) throw new Error('proxy HTTP '+res2.status);
         var j2 = await res2.json();
         var out2 = (j2 && j2.quotes) || {};
         return out2;
+      }
+      async function fetchViaProxyOne(sym){
+        // Fetch a single symbol (plus USDJPY) to avoid batch mix-ups
+        var syms = [sym];
+        try { if (sym !== 'USDJPY=X') syms.push('USDJPY=X'); } catch(e) {}
+        var q = await fetchViaProxy(syms);
+        return q || {};
       }
       async function fetchYahoo(symbols){
         if(!symbols || !symbols.length) return {};
@@ -276,11 +279,11 @@
         if (isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) {
           usdJpy = 1 / usdJpy;
         }
-        dlog('[PF] USDJPY used =', usdJpy, 'raw=', quotes['USDJPY=X']);
+        
         tables.forEach(function(table){
           try { tagTableColumns(table); } catch(e){}
           var idx = headerIndexMap(table);
-          dlog('[PF] idx map', idx);
+          
           var colSym = idx['SYMBOL'];
           var colShares = idx['SHARES'];
           var colUsdP = idx['USD_PRICE'];
@@ -291,34 +294,32 @@
           var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
           var sumUsd = 0, sumJpy = 0;
           rows.forEach(function(tr){
-            var sym = (tr.getAttribute('data-symbol') || (tr.cells[colSym] && tr.cells[colSym].getAttribute('data-value')) || (tr.cells[colSym] && tr.cells[colSym].textContent) || '').trim();
+            var sym = (tr.getAttribute('data-symbol') || '').trim();
             if(!sym) return;
             var isJPY = guessIsJPY(sym);
             var shares = numberFromCell(getCellByKey(tr,'SHARES') || tr.cells[colShares]);
             var q = quotes[sym.toUpperCase()];
             var priceUsd, priceJpy;
-            if (q && (isFinite(q.regularMarketPrice) || isFinite(q.jpy))) {
-              // Prefer server-normalized JPY if provided
+            // Strict: use server-provided JPY when available. For .T, do not fall back to rmp.
+            if (q) {
               if (isFinite(q.jpy)) {
-                priceJpy = q.jpy;
+                priceJpy = Number(q.jpy);
                 if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
-              } else {
-                var cur = (q.currency || '').toUpperCase();
-                if (isJPY) {
-                  priceJpy = q.regularMarketPrice;
-                  if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
-                } else {
+              } else if (!isJPY) {
+                // Non-JP symbols: derive from currency + rmp
+                if (isFinite(q.regularMarketPrice)) {
+                  var cur = (q.currency || '').toUpperCase();
                   if (cur === 'JPY') {
                     priceJpy = q.regularMarketPrice;
                     if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
-                  } else { // treat as USD by default
+                  } else { // default USD
                     priceUsd = q.regularMarketPrice;
                     if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
                   }
                 }
               }
             }
-            dlog('[PF] calc', sym, {isJPY:isJPY, cur:q && q.currency, rmp: q && q.regularMarketPrice, priceUsd, priceJpy});
+            
             var cellUsdP = getCellByKey(tr,'USD_PRICE') || tr.cells[colUsdP];
             var cellUsdV = getCellByKey(tr,'USD_VALUE') || tr.cells[colUsdV];
             var cellJpyP = getCellByKey(tr,'JPY_PRICE') || tr.cells[colJpyP];
@@ -336,9 +337,11 @@
           });
           // update tfoot totals if present
           if(table.tFoot && table.tFoot.rows.length){
-            var tds = table.tFoot.rows[0].cells;
-            if(colUsdV!=null && tds[colUsdV]) setNumCell(tds[colUsdV], sumUsd, 'USD', 2);
-            if(colJpyV!=null && tds[colJpyV]) setNumCell(tds[colJpyV], sumJpy, 'JPY');
+            var tfr = table.tFoot.rows[0];
+            var tfUsd = (tfr && (tfr.querySelector('td[data-col="USD_VALUE"]') || tfr.cells[colUsdV])) || null;
+            var tfJpy = (tfr && (tfr.querySelector('td[data-col="JPY_VALUE"]') || tfr.cells[colJpyV])) || null;
+            if(tfUsd) setNumCell(tfUsd, sumUsd, 'USD', 2);
+            if(tfJpy) setNumCell(tfJpy, sumJpy, 'JPY');
           }
           // re-apply sort if a header has data-asc state
           try{
@@ -368,22 +371,32 @@
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
           var apiBase = getApiBase();
-          dlog('[PF] refresh start', { syms, apiBase });
+          
           if (apiBase) {
             // When explicit API is specified, honor it and prefer Stooq at the worker
-            try { quotes = await fetchViaProxy(syms); } catch(e) { dlog('[PF] proxy error', e); }
+            try { quotes = await fetchViaProxy(syms); } catch(e) { }
+            // Harden: re-fetch each JP (.T) symbol individually and override to avoid batch mis-assignment
+            var jpx = syms.filter(function(s){ return /\.T$/i.test(s); });
+            for (var i=0;i<jpx.length;i++){
+              try {
+                var over = await fetchViaProxyOne(jpx[i]);
+                if (over && over[jpx[i].toUpperCase()]) {
+                  quotes[jpx[i].toUpperCase()] = over[jpx[i].toUpperCase()];
+                }
+              } catch(ei) { }
+            }
           } else {
             // Prefer Stooq directly, then Yahoo as fallback (no API)
-            try { quotes = await fetchStooq(syms); } catch(e) { dlog('[PF] stooq error', e); }
+            try { quotes = await fetchStooq(syms); } catch(e) { }
             if (!Object.keys(quotes).length) {
-              try { quotes = await fetchYahoo(syms); } catch(e2) { dlog('[PF] yahoo fallback error', e2); }
+              try { quotes = await fetchYahoo(syms); } catch(e2) { }
             }
           }
-          dlog('[PF] quotes keys', Object.keys(quotes||{}));
+          
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
         } catch(e) {
-          dlog('[PF] refresh failed', e);
+          
           var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '更新失敗（ネットワーク/CORS）'; }
         } finally {
           __pfRefreshing = false;
