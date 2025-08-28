@@ -155,6 +155,27 @@
         }
         return map;
       }
+      // Tag columns and cells with data-col for stable addressing regardless of index shifts
+      function tagTableColumns(table){
+        if(!table || !table.tHead || !table.tHead.rows.length) return;
+        var keys = ['SYMBOL','SHARES','USD_PRICE','USD_VALUE','JPY_PRICE','JPY_VALUE'];
+        var ths = table.tHead.rows[0].cells;
+        var colKey = new Array(ths.length);
+        for (var i=0;i<ths.length;i++){
+          var txt = (ths[i].textContent||'').toUpperCase().replace(/[\s▲▼]/g,'');
+          if (keys.indexOf(txt) >= 0){ ths[i].setAttribute('data-col', txt); colKey[i] = txt; }
+        }
+        function tagRow(row){
+          if(!row) return;
+          for (var i=0;i<row.cells.length;i++){
+            var key = colKey[i];
+            if (key) row.cells[i].setAttribute('data-col', key);
+          }
+        }
+        var tb = table.tBodies && table.tBodies[0]; if (tb){ Array.prototype.forEach.call(tb.rows, tagRow); }
+        var tf = table.tFoot && table.tFoot.rows && table.tFoot.rows[0]; if (tf) tagRow(tf);
+      }
+      function getCellByKey(row, key){ return row ? row.querySelector('td[data-col="'+key+'"]') : null; }
       // Optional proxy endpoint (Cloudflare Workers). Use query param ?api=https://<your-worker>/quote
       function getApiBase(){
         try{
@@ -257,7 +278,9 @@
         }
         dlog('[PF] USDJPY used =', usdJpy, 'raw=', quotes['USDJPY=X']);
         tables.forEach(function(table){
+          try { tagTableColumns(table); } catch(e){}
           var idx = headerIndexMap(table);
+          dlog('[PF] idx map', idx);
           var colSym = idx['SYMBOL'];
           var colShares = idx['SHARES'];
           var colUsdP = idx['USD_PRICE'];
@@ -271,7 +294,7 @@
             var sym = (tr.getAttribute('data-symbol') || (tr.cells[colSym] && tr.cells[colSym].getAttribute('data-value')) || (tr.cells[colSym] && tr.cells[colSym].textContent) || '').trim();
             if(!sym) return;
             var isJPY = guessIsJPY(sym);
-            var shares = numberFromCell(tr.cells[colShares]);
+            var shares = numberFromCell(getCellByKey(tr,'SHARES') || tr.cells[colShares]);
             var q = quotes[sym.toUpperCase()];
             var priceUsd, priceJpy;
             if (q && (isFinite(q.regularMarketPrice) || isFinite(q.jpy))) {
@@ -296,16 +319,20 @@
               }
             }
             dlog('[PF] calc', sym, {isJPY:isJPY, cur:q && q.currency, rmp: q && q.regularMarketPrice, priceUsd, priceJpy});
+            var cellUsdP = getCellByKey(tr,'USD_PRICE') || tr.cells[colUsdP];
+            var cellUsdV = getCellByKey(tr,'USD_VALUE') || tr.cells[colUsdV];
+            var cellJpyP = getCellByKey(tr,'JPY_PRICE') || tr.cells[colJpyP];
+            var cellJpyV = getCellByKey(tr,'JPY_VALUE') || tr.cells[colJpyV];
             if (isFinite(priceUsd)){
-              if(colUsdP!=null) setNumCell(tr.cells[colUsdP], priceUsd, 'USD', 2);
-              if(colUsdV!=null) setNumCell(tr.cells[colUsdV], shares*priceUsd, 'USD', 2);
+              if(cellUsdP) setNumCell(cellUsdP, priceUsd, 'USD', 2);
+              if(cellUsdV) setNumCell(cellUsdV, shares*priceUsd, 'USD', 2);
             }
             if (isFinite(priceJpy)){
-              if(colJpyP!=null) setNumCell(tr.cells[colJpyP], priceJpy, 'JPY');
-              if(colJpyV!=null) setNumCell(tr.cells[colJpyV], shares*priceJpy, 'JPY');
+              if(cellJpyP) setNumCell(cellJpyP, priceJpy, 'JPY');
+              if(cellJpyV) setNumCell(cellJpyV, shares*priceJpy, 'JPY');
             }
-            if(colUsdV!=null){ var v = numberFromCell(tr.cells[colUsdV]); if(isFinite(v)) sumUsd += v; }
-            if(colJpyV!=null){ var w = numberFromCell(tr.cells[colJpyV]); if(isFinite(w)) sumJpy += w; }
+            if(cellUsdV){ var v = numberFromCell(cellUsdV); if(isFinite(v)) sumUsd += v; }
+            if(cellJpyV){ var w = numberFromCell(cellJpyV); if(isFinite(w)) sumJpy += w; }
           });
           // update tfoot totals if present
           if(table.tFoot && table.tFoot.rows.length){
