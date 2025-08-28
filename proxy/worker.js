@@ -379,12 +379,14 @@ async function fetchStooq(symbols) {
   return out;
 }
 
-async function fetchYahooChart(sym) {
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchYahooChart(sym, range = '2y') {
   const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
   const enc = encodeURIComponent(sym);
   const urls = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${enc}?range=2y&interval=1d`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${enc}?range=2y&interval=1d`
+    `https://query2.finance.yahoo.com/v8/finance/chart/${enc}?range=${encodeURIComponent(range)}&interval=1d`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${enc}?range=${encodeURIComponent(range)}&interval=1d`
   ];
   for (const u of urls) {
     try {
@@ -422,12 +424,14 @@ async function fetchYahooBaselines(symbols) {
   const out = {};
   const list = symbols.slice();
   let idx = 0;
-  const workers = Math.min(5, list.length);
-  async function run() {
+  let workers = Math.min(3, list.length);
+  async function run(pass = 1) {
     for (;;) {
       const i = idx++; if (i >= list.length) break;
       const s = list[i];
-      const r = await fetchYahooChart(s);
+      let r = await fetchYahooChart(s, '2y');
+      if (!r) r = await fetchYahooChart(s, '1y');
+      if (!r) r = await fetchYahooChart(s, '6mo');
       if (!r) continue;
       // Determine previous trading day's close and baselines
       let prev1d;
@@ -450,8 +454,21 @@ async function fetchYahooBaselines(symbols) {
       if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
       if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
       if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
+      if (pass > 1) await sleep(120);
     }
   }
-  await Promise.all(Array.from({length: workers}, run));
+  await Promise.all(Array.from({length: workers}, () => run(1)));
+  // Retry pass for missing symbols with stricter pacing
+  const missing = list.filter(s => {
+    const sym = String(s).toUpperCase();
+    const v = out[sym] || {};
+    return !(Number.isFinite(v.prevClose) && (Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose365d)));
+  });
+  if (missing.length) {
+    idx = 0;
+    workers = 1;
+    list.splice(0, list.length, ...missing);
+    await Promise.all(Array.from({length: workers}, () => run(2)));
+  }
   return out;
 }
