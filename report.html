@@ -229,6 +229,93 @@
           }
         }catch(e){}
       }
+      // ---- Fetch log (last 100 entries) ----
+      function _finite(n){ var v = Number(n); return Number.isFinite(v) ? v : undefined; }
+      function loadFetchLog(){
+        try{
+          var s = localStorage.getItem('PF_FETCH_LOG');
+          if(!s) return [];
+          var a = JSON.parse(s);
+          return Array.isArray(a) ? a : [];
+        }catch(e){ return []; }
+      }
+      function pushFetchLog(quotes, apiBase){
+        try{
+          if (!quotes || !Object.keys(quotes).length) return;
+          var snap = {};
+          Object.keys(quotes).sort().forEach(function(sym){
+            var q = quotes[sym] || {};
+            var o = {};
+            var p = _finite(q.regularMarketPrice); if (p !== undefined) o.p = p;
+            var d1 = _finite(q.prevClose); if (d1 !== undefined) o.d1 = d1;
+            var m30 = _finite(q.prevClose30d); if (m30 !== undefined) o.m30 = m30;
+            var y365 = _finite(q.prevClose365d); if (y365 !== undefined) o.y365 = y365;
+            var j = _finite(q.jpy); if (j !== undefined) o.jpy = j;
+            if (q.currency) o.c = String(q.currency).toUpperCase();
+            if (q.source) o.src = String(q.source);
+            if (Object.keys(o).length) snap[String(sym).toUpperCase()] = o;
+          });
+          var log = loadFetchLog();
+          log.push({ t: Date.now(), api: apiBase || null, q: snap });
+          if (log.length > 100) log = log.slice(-100);
+          localStorage.setItem('PF_FETCH_LOG', JSON.stringify(log));
+        }catch(e){}
+      }
+      function renderFetchLog(){
+        try{
+          var wrap = document.getElementById('pf-fetch-log-wrap');
+          if (!wrap){
+            wrap = document.createElement('div');
+            wrap.id = 'pf-fetch-log-wrap';
+            wrap.style.margin = '24px 0';
+            var h = document.createElement('h3');
+            h.textContent = 'API Fetch Log (Last 100)';
+            var btn = document.createElement('button');
+            btn.id = 'pf-clear-log';
+            btn.textContent = 'ログをクリア';
+            btn.style.margin = '6px 0';
+            btn.addEventListener('click', function(){ localStorage.removeItem('PF_FETCH_LOG'); renderFetchLog(); });
+            var pre = document.createElement('pre');
+            pre.id = 'pf-fetch-log';
+            pre.style.whiteSpace = 'pre-wrap';
+            pre.style.fontSize = '12px';
+            pre.style.lineHeight = '1.35';
+            pre.style.background = '#f8f8f8';
+            pre.style.border = '1px solid #ddd';
+            pre.style.padding = '8px';
+            pre.style.maxHeight = '320px';
+            pre.style.overflow = 'auto';
+            wrap.appendChild(h);
+            wrap.appendChild(btn);
+            wrap.appendChild(pre);
+            document.body.appendChild(wrap);
+          }
+          var preEl = document.getElementById('pf-fetch-log'); if(!preEl) return;
+          var log = loadFetchLog();
+          var lines = [];
+          for (var i = log.length - 1; i >= 0; i--){
+            var e = log[i] || {};
+            var ts = (typeof e.t === 'number') ? timeStr(e.t) : nowStr();
+            var syms = Object.keys(e.q || {}).join(',');
+            lines.push('[' + ts + '] api=' + (e.api || '(auto)') + ' symbols=' + syms);
+            var q = e.q || {};
+            Object.keys(q).forEach(function(sym){
+              var d = q[sym] || {};
+              var parts = [];
+              if ('p' in d) parts.push('p=' + d.p);
+              if ('d1' in d) parts.push('d1=' + d.d1);
+              if ('m30' in d) parts.push('m30=' + d.m30);
+              if ('y365' in d) parts.push('y365=' + d.y365);
+              if ('jpy' in d) parts.push('jpy=' + d.jpy);
+              if ('c' in d) parts.push('c=' + d.c);
+              if ('src' in d) parts.push('src=' + d.src);
+              lines.push('  ' + sym + ': ' + parts.join(' '));
+            });
+            lines.push('');
+          }
+          preEl.textContent = lines.join('\n');
+        }catch(e){}
+      }
       var __pfAppliedCache = false;
       var __pfCachedAt = 0;
       async function fetchViaProxy(symbols){
@@ -549,6 +636,8 @@
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
           saveCachedQuotes(quotes);
+          pushFetchLog(quotes, apiBase);
+          renderFetchLog();
         } catch(e) {
           // On failure, show cached quotes if available
           var cached = loadCachedQuotes();
@@ -575,6 +664,7 @@
             var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+timeStr(cached.t)+'（キャッシュ）'; }
           }
         }catch(e){}
+        renderFetchLog();
         refresh();
         window.addEventListener('online', refresh);
         document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') refresh(); });
