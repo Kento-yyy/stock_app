@@ -168,6 +168,21 @@
           var txt = (ths[i].textContent||'').toUpperCase().replace(/[\s▲▼]/g,'');
           if (keys.indexOf(txt) >= 0){ ths[i].setAttribute('data-col', txt); colKey[i] = txt; }
         }
+        // Disambiguate YoY/MoM/DoD for USD and JPY blocks based on position after *_PRICE
+        var norm = [];
+        for (var i=0;i<ths.length;i++){ norm[i] = (ths[i].textContent||'').toUpperCase().replace(/[\s▲▼]/g,''); }
+        var idxUsdP = norm.indexOf('USD_PRICE');
+        if (idxUsdP >= 0){
+          if (ths[idxUsdP+1]) { ths[idxUsdP+1].setAttribute('data-col','USD_YOY'); colKey[idxUsdP+1] = 'USD_YOY'; }
+          if (ths[idxUsdP+2]) { ths[idxUsdP+2].setAttribute('data-col','USD_MOM'); colKey[idxUsdP+2] = 'USD_MOM'; }
+          if (ths[idxUsdP+3]) { ths[idxUsdP+3].setAttribute('data-col','USD_DOD'); colKey[idxUsdP+3] = 'USD_DOD'; }
+        }
+        var idxJpyP = norm.indexOf('JPY_PRICE');
+        if (idxJpyP >= 0){
+          if (ths[idxJpyP+1]) { ths[idxJpyP+1].setAttribute('data-col','JPY_YOY'); colKey[idxJpyP+1] = 'JPY_YOY'; }
+          if (ths[idxJpyP+2]) { ths[idxJpyP+2].setAttribute('data-col','JPY_MOM'); colKey[idxJpyP+2] = 'JPY_MOM'; }
+          if (ths[idxJpyP+3]) { ths[idxJpyP+3].setAttribute('data-col','JPY_DOD'); colKey[idxJpyP+3] = 'JPY_DOD'; }
+        }
         function tagRow(row){
           if(!row) return;
           for (var i=0;i<row.cells.length;i++){
@@ -179,6 +194,14 @@
         var tf = table.tFoot && table.tFoot.rows && table.tFoot.rows[0]; if (tf) tagRow(tf);
       }
       function getCellByKey(row, key){ return row ? row.querySelector('td[data-col="'+key+'"]') : null; }
+      function setPctCell(td, frac){
+        if (!td) return;
+        if (!isFinite(frac)) { td.setAttribute('data-value',''); td.textContent=''; return; }
+        var cls = frac >= 0 ? 'up' : 'down';
+        var pct = (frac*100).toFixed(1);
+        td.setAttribute('data-value', String(frac));
+        td.innerHTML = "<span class='chg'><span class='"+cls+"'>" + (frac>=0?'+':'') + pct + "%</span></span>";
+      }
       // Optional proxy endpoint (Cloudflare Workers). Use query param ?api=https://<your-worker>/quote
       function getApiBase(){
         try{
@@ -297,6 +320,7 @@
       }
       function updateTables(quotes){
         var tables = document.querySelectorAll('table.pf-table');
+        var totalUsdAll = 0, totalJpyAll = 0;
         var title = document.querySelector('#pf-title, body > h2');
         if(title){ var t = (title.textContent||''); title.textContent = t.replace(/\(.*?\)/, '('+nowStr()+')'); }
         var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+nowStr(); }
@@ -350,6 +374,12 @@
             var cellUsdV = getCellByKey(tr,'USD_VALUE') || tr.cells[colUsdV];
             var cellJpyP = getCellByKey(tr,'JPY_PRICE') || tr.cells[colJpyP];
             var cellJpyV = getCellByKey(tr,'JPY_VALUE') || tr.cells[colJpyV];
+            var cellUsdYoY = getCellByKey(tr,'USD_YOY');
+            var cellUsdMoM = getCellByKey(tr,'USD_MOM');
+            var cellUsdDoD = getCellByKey(tr,'USD_DOD');
+            var cellJpyYoY = getCellByKey(tr,'JPY_YOY');
+            var cellJpyMoM = getCellByKey(tr,'JPY_MOM');
+            var cellJpyDoD = getCellByKey(tr,'JPY_DOD');
             if (isFinite(priceUsd)){
               if(cellUsdP) setNumCell(cellUsdP, priceUsd, 'USD', 2);
               if(cellUsdV) setNumCell(cellUsdV, shares*priceUsd, 'USD', 2);
@@ -357,6 +387,73 @@
             if (isFinite(priceJpy)){
               if(cellJpyP) setNumCell(cellJpyP, priceJpy, 'JPY');
               if(cellJpyV) setNumCell(cellJpyV, shares*priceJpy, 'JPY');
+            }
+            // Percent changes (prefer API-provided; fallback to local computation)
+            // USD block
+            if (isFinite(priceUsd)){
+              var usdDoD = q && q.usdDoD;
+              var usdMoM = q && q.usdMoM;
+              var usdYoY = q && q.usdYoY;
+              if (!(isFinite(usdDoD))) {
+                var prevUsd1 = undefined;
+                if (q) {
+                  if ((q.currency||'').toUpperCase()==='USD'){
+                    prevUsd1 = q.prevClose;
+                  } else if (isFinite(usdJpy) && isFinite(q.prevJpy)) {
+                    prevUsd1 = q.prevJpy / usdJpy;
+                  }
+                }
+                if (isFinite(prevUsd1) && prevUsd1>0) usdDoD = (priceUsd - prevUsd1)/prevUsd1;
+              }
+              if (!(isFinite(usdMoM))) {
+                var prevUsd30 = undefined;
+                if (q) {
+                  if ((q.currency||'').toUpperCase()==='USD'){
+                    prevUsd30 = q.prevClose30d;
+                  } else if (isFinite(usdJpy) && isFinite(q.prevJpy30d)) {
+                    prevUsd30 = q.prevJpy30d / usdJpy;
+                  }
+                }
+                if (isFinite(prevUsd30) && prevUsd30>0) usdMoM = (priceUsd - prevUsd30)/prevUsd30;
+              }
+              if (!(isFinite(usdYoY))) {
+                var prevUsd365 = undefined;
+                if (q) {
+                  if ((q.currency||'').toUpperCase()==='USD'){
+                    prevUsd365 = q.prevClose365d;
+                  } else if (isFinite(usdJpy) && isFinite(q.prevJpy365d)) {
+                    prevUsd365 = q.prevJpy365d / usdJpy;
+                  }
+                }
+                if (isFinite(prevUsd365) && prevUsd365>0) usdYoY = (priceUsd - prevUsd365)/prevUsd365;
+              }
+              if (cellUsdDoD && isFinite(usdDoD)) setPctCell(cellUsdDoD, usdDoD);
+              if (cellUsdMoM && isFinite(usdMoM)) setPctCell(cellUsdMoM, usdMoM);
+              if (cellUsdYoY && isFinite(usdYoY)) setPctCell(cellUsdYoY, usdYoY);
+            }
+            // JPY block
+            if (isFinite(priceJpy)){
+              var jpyDoD = q && q.jpyDoD;
+              var jpyMoM = q && q.jpyMoM;
+              var jpyYoY = q && q.jpyYoY;
+              if (!(isFinite(jpyDoD))) {
+                var prevJ1 = q && (q.prevJpy);
+                if (!isFinite(prevJ1) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ1 = q.prevClose;
+                if (isFinite(prevJ1) && prevJ1>0) jpyDoD = (priceJpy - prevJ1)/prevJ1;
+              }
+              if (!(isFinite(jpyMoM))) {
+                var prevJ30 = q && (q.prevJpy30d);
+                if (!isFinite(prevJ30) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ30 = q.prevClose30d;
+                if (isFinite(prevJ30) && prevJ30>0) jpyMoM = (priceJpy - prevJ30)/prevJ30;
+              }
+              if (!(isFinite(jpyYoY))) {
+                var prevJ365 = q && (q.prevJpy365d);
+                if (!isFinite(prevJ365) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ365 = q.prevClose365d;
+                if (isFinite(prevJ365) && prevJ365>0) jpyYoY = (priceJpy - prevJ365)/prevJ365;
+              }
+              if (cellJpyDoD && isFinite(jpyDoD)) setPctCell(cellJpyDoD, jpyDoD);
+              if (cellJpyMoM && isFinite(jpyMoM)) setPctCell(cellJpyMoM, jpyMoM);
+              if (cellJpyYoY && isFinite(jpyYoY)) setPctCell(cellJpyYoY, jpyYoY);
             }
             if(cellUsdV){ var v = numberFromCell(cellUsdV); if(isFinite(v)) sumUsd += v; }
             if(cellJpyV){ var w = numberFromCell(cellJpyV); if(isFinite(w)) sumJpy += w; }
@@ -368,6 +465,11 @@
             var tfJpy = (tfr && (tfr.querySelector('td[data-col="JPY_VALUE"]') || tfr.cells[colJpyV])) || null;
             if(tfUsd) setNumCell(tfUsd, sumUsd, 'USD', 2);
             if(tfJpy) setNumCell(tfJpy, sumJpy, 'JPY');
+          }
+          // accumulate global totals (skip tables without rows)
+          if (rows && rows.length) {
+            if (isFinite(sumUsd)) totalUsdAll += sumUsd;
+            if (isFinite(sumJpy)) totalJpyAll += sumJpy;
           }
           // re-apply sort if a header has data-asc state
           try{
@@ -384,6 +486,20 @@
             }
           } catch(e){}
         });
+        // Update overall totals table (pf-total) if exists
+        try{
+          var tot = document.getElementById('pf-total');
+          if (tot && tot.tFoot && tot.tFoot.rows.length){
+            var tfr2 = tot.tFoot.rows[0];
+            var tfUsd2 = tfr2 && (tfr2.querySelector('td[data-col="USD_VALUE"]'));
+            var tfJpy2 = tfr2 && (tfr2.querySelector('td[data-col="JPY_VALUE"]'));
+            var idx2 = headerIndexMap(tot);
+            if (!tfUsd2 && idx2['USD_VALUE']!=null) tfUsd2 = tfr2.cells[idx2['USD_VALUE']];
+            if (!tfJpy2 && idx2['JPY_VALUE']!=null) tfJpy2 = tfr2.cells[idx2['JPY_VALUE']];
+            if (tfUsd2) setNumCell(tfUsd2, totalUsdAll, 'USD', 2);
+            if (tfJpy2) setNumCell(tfJpy2, totalJpyAll, 'JPY');
+          }
+        } catch(e){}
       }
       var __pfRefreshing = false;
       async function refresh(){
@@ -401,16 +517,27 @@
           if (apiBase) {
             // When explicit API is specified, honor it and prefer Stooq at the worker
             try { quotes = await fetchViaProxy(syms); } catch(e) { }
-            // Harden: re-fetch each JP (.T) symbol individually and override to avoid batch mis-assignment
-            var jpx = syms.filter(function(s){ return /\.T$/i.test(s); });
-            for (var i=0;i<jpx.length;i++){
-              try {
-                var over = await fetchViaProxyOne(jpx[i]);
-                if (over && over[jpx[i].toUpperCase()]) {
-                  quotes[jpx[i].toUpperCase()] = over[jpx[i].toUpperCase()];
-                }
-              } catch(ei) { }
-            }
+            // Fast path: only re-fetch suspicious JP rows (rare) concurrently
+            try {
+              var codes = new Set(syms.filter(function(s){return /\.T$/i.test(s);}).map(function(s){return parseInt(s,10);}));
+              var suspects = syms.filter(function(s){
+                if(!/\.T$/i.test(s)) return false;
+                var q = quotes[s]; if(!q) return true; // missing
+                if (!isFinite(q.jpy)) return true;     // no JPY value
+                var pj = Math.round(Number(q.jpy));
+                var code = parseInt(s,10);
+                // suspicious if equals another JP code (e.g., 7203) that's not own code
+                return Number.isInteger(pj) && codes.has(pj) && pj !== code;
+              });
+              if (suspects.length){
+                await Promise.all(suspects.map(async function(sym){
+                  try{
+                    var over = await fetchViaProxyOne(sym);
+                    if (over && over[sym.toUpperCase()]) quotes[sym.toUpperCase()] = over[sym.toUpperCase()];
+                  }catch(_){ }
+                }));
+              }
+            } catch(_){ }
           } else {
             // Prefer Stooq directly, then Yahoo as fallback (no API)
             try { quotes = await fetchStooq(syms); } catch(e) { }

@@ -2,18 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-ポートフォリオの評価額を計算し、メールで通知します。
+ポートフォリオの評価額を計算し、標準出力とHTMLに出力します。
 
 構成:
  - ポートフォリオCSV: symbol,shares(,currency) で保有数・通貨を記録
- - 設定JSON: メール送信と価格取得の設定（デフォルトは yfinance）
+ - 設定JSON: 価格取得の設定（デフォルトは yfinance）
 
 使用例:
-  python3 portfolio_notify.py --config config.json --portfolio portfolio.csv
+  python3 portfolio_notify.py --config config.json --portfolio portfolio.csv --save-html report.html
 
 備考:
  - 価格取得は yfinance（APIキー不要）または Alpha Vantage（APIキー必要）を選択可能。
- - メール送信はSMTP(SSL)。Gmailはアプリパスワードの利用を推奨。
 """
 
 from __future__ import annotations
@@ -23,11 +22,9 @@ import csv
 import datetime as dt
 import json
 import os
-import ssl
 import sys
 import time
 from dataclasses import dataclass
-from email.message import EmailMessage
 from typing import Dict, Iterable, List, Optional, Tuple
 
 try:
@@ -71,23 +68,12 @@ class Row:
 
 
 @dataclass
-class EmailConfig:
-    smtp_host: str
-    smtp_port: int
-    username: str
-    password: str
-    to: str
-    sender: Optional[str] = None
-
-
-@dataclass
 class AlphaVantageConfig:
     api_key: str
 
 
 @dataclass
 class AppConfig:
-    email: EmailConfig
     price_provider: AlphaVantageConfig
     price_provider_type: str = "yfinance"  # "yfinance" or "alpha_vantage"
     currency: Optional[str] = "JPY"  # 目的通貨 (例: "JPY"). 指定時は換算
@@ -121,6 +107,35 @@ class RateLimiter:
         self._times.append(time.time())
 
 
+def _load_dotenv(path: str = ".env") -> None:
+    """Lightweight .env loader without external deps.
+
+    - Parses KEY=VALUE lines, ignoring blanks/comments.
+    - Respects existing os.environ (does not overwrite).
+    - Supports simple single or double quotes around VALUE.
+    """
+    try:
+        if not os.path.exists(path):
+            return
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                if "=" not in s:
+                    continue
+                key, val = s.split("=", 1)
+                key = key.strip()
+                val = val.strip()
+                if (val.startswith("\"") and val.endswith("\"")) or (val.startswith("'") and val.endswith("'")):
+                    val = val[1:-1]
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except Exception:
+        # .env 読み込み失敗は致命ではないので無視
+        pass
+
+
 def load_portfolio_csv(path: str, default_currency: str = "USD") -> List[Holding]:
     holdings: List[Holding] = []
     with open(path, newline="", encoding="utf-8") as f:
@@ -146,12 +161,9 @@ def load_config(path: str) -> AppConfig:
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
 
-    email_raw = raw.get("email") or {}
     provider_raw = raw.get("price_provider") or {}
 
     # 環境変数で上書きできるようにする（秘密情報向け）
-    username = os.getenv("PN_EMAIL_USERNAME", email_raw.get("username"))
-    password = os.getenv("PN_EMAIL_PASSWORD", email_raw.get("password"))
     api_key = os.getenv("PN_ALPHA_VANTAGE_KEY", provider_raw.get("api_key"))
     provider_type = (provider_raw.get("type") or "yfinance").lower()
     if provider_type == "alpha_vantage":
@@ -160,18 +172,8 @@ def load_config(path: str) -> AppConfig:
         if isinstance(api_key, str) and api_key.strip().upper().startswith("YOUR_"):
             raise ValueError("Alpha Vantage の APIキーがプレースホルダーです。実際のキーを設定してください。環境変数 PN_ALPHA_VANTAGE_KEY でも上書き可能です。")
 
-    email_cfg = EmailConfig(
-        smtp_host=email_raw.get("smtp_host", "smtp.gmail.com"),
-        smtp_port=int(email_raw.get("smtp_port", 465)),
-        username=username or "",
-        password=password or "",
-        to=email_raw.get("to", ""),
-        sender=email_raw.get("from") or email_raw.get("sender") or username,
-    )
-
     provider_cfg = AlphaVantageConfig(api_key=api_key or "")
     return AppConfig(
-        email=email_cfg,
         price_provider=provider_cfg,
         price_provider_type=provider_type,
         currency=raw.get("currency"),
@@ -1132,39 +1134,13 @@ def dataset_to_csv(dataset: Dict) -> str:
     return "\n".join(out_lines) + "\n"
 
 
-# ---------------------------- Emailing -------------------------------
-
-def send_email(cfg: EmailConfig, subject: str, body: str, html: Optional[str] = None) -> None:
-    if not cfg.username or not cfg.password:
-        raise ValueError("メールのユーザー名/パスワードが設定されていません")
-    if not cfg.to:
-        raise ValueError("宛先メールアドレス(to)が設定されていません")
-
-    msg = EmailMessage()
-    sender = cfg.sender or cfg.username
-    msg["From"] = sender
-    msg["To"] = cfg.to
-    msg["Subject"] = subject
-    msg.set_content(body)
-    if html:
-        msg.add_alternative(html, subtype="html")
-
-    context = ssl.create_default_context()
-    import smtplib
-
-    with smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, context=context, timeout=30) as server:
-        server.login(cfg.username, cfg.password)
-        server.send_message(msg)
-
-
 # ------------------------------ CLI ---------------------------------
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ポートフォリオ評価通知ツール")
+    p = argparse.ArgumentParser(description="ポートフォリオ評価レポート生成ツール")
     p.add_argument("--config", default="config.json", help="設定ファイル(JSON)。デフォルト: config.json")
     p.add_argument("--portfolio", default="portfolio.csv", help="ポートフォリオCSV。デフォルト: portfolio.csv")
-    p.add_argument("--no-email", action="store_true", help="メール送信せず標準出力に表示")
-    p.add_argument("--subject-prefix", default="", help="メール件名のプレフィックス")
+    # 以前のオプションは廃止しました
     p.add_argument(
         "--sort-by",
         choices=["usd", "jpy", "none"],
@@ -1184,6 +1160,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+    # Load .env early so env vars can override secrets before reading config
+    _load_dotenv()
     try:
         cfg = load_config(args.config)
         holdings = load_portfolio_csv(args.portfolio, default_currency=cfg.quote_currency)
@@ -1229,13 +1207,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     f.write(html_report)
             except Exception as e:
                 print(f"HTML保存に失敗: {e}", file=sys.stderr)
-        if args.no_email:
-            print(report)
-            return 0
-
-        subject_time = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-        subject = f"{args.subject_prefix} ポートフォリオ評価額(USD/JPY) {subject_time}".strip()
-        send_email(cfg.email, subject, report, html=html_report)
+        print(report)
         return 0
     except KeyboardInterrupt:
         print("中断されました", file=sys.stderr)

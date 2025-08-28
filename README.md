@@ -1,6 +1,6 @@
 **概要**
-- ポートフォリオCSVを読み込み、現在価格で評価額を計算し、メール通知します。
-- 価格取得は Alpha Vantage API を使用します（無料枠は分間5件/日500件）。
+- ポートフォリオCSVを読み込み、現在価格で評価額を計算します。
+- 価格取得は Alpha Vantage API または yfinance を使用できます（既定は yfinance）。
 
 **ファイル構成**
 - `portfolio_notify.py`: メインスクリプト
@@ -14,23 +14,28 @@
   - `requests`（Alpha Vantageを使う場合のみ）
 
 **セットアップ**
-- 設定ファイルを作成:
-  - `cp config.json config.json`（既にある場合は編集のみ）
-  - `config.json` を編集（SMTPや宛先、Alpha Vantage APIキーを設定）
+- 設定ファイルを作成/編集:
+  - `config.json` を編集（価格プロバイダ等を設定）
 - ポートフォリオCSVを作成:
   - 既存の `portfolio.csv` を編集
   - ヘッダは `symbol,shares`（任意で `currency` を追加）
   - 例: `AAPL,10,USD` / `7203.T,5,JPY`
 - 機密情報は環境変数でも上書き可能:
   - `PN_ALPHA_VANTAGE_KEY` … Alpha Vantage APIキー
-  - `PN_EMAIL_USERNAME` … SMTPユーザー名
-  - `PN_EMAIL_PASSWORD` … SMTPパスワード（例: Gmailのアプリパスワード）
+
+**秘密情報の秘匿（.env推奨）**
+- このリポジトリは `.env` を自動読み込みします（外部ライブラリ不要）。
+- 手順:
+  1) `.env.example` を `.env` にコピーし、必要な値を記入
+  2) `config.json` からパスワード等の秘匿情報を空にする（`.env` が優先されます）
+  3) `.env` は Git 追跡除外済み（`.gitignore`）
+- 利用する主なキー:
+  - （任意）`PN_ALPHA_VANTAGE_KEY`
 
 **実行**
-- 標準出力のみ（メール送信なし）:
-  - `python3 portfolio_notify.py --no-email`
-- 通常実行（メール送信あり）:
+- 標準出力に結果表示:
   - `python3 portfolio_notify.py --config config.json --portfolio portfolio.csv`
+
 
 **混在ポートフォリオ（米国株+日本株）**
 - `portfolio.csv` に `currency` 列を追加すると、銘柄ごとに通貨を指定できます（`USD` または `JPY`）。
@@ -39,24 +44,19 @@
 - 為替レートは Alpha Vantage の `CURRENCY_EXCHANGE_RATE` を使用（USD→JPYを1回取得）。
 - 注意: 現状サポート通貨は USD/JPY のみです。
 
-**メール設定のヒント**
-- Gmailの場合:
-  - `smtp_host`: `smtp.gmail.com`
-  - `smtp_port`: `465`
-  - 2段階認証を有効化し、アプリパスワードを発行して `password` に設定
 
 **価格プロバイダ**
 - 既定は `yfinance`（APIキー不要）。`config.json` の `price_provider.type` を `"yfinance"` にするか、未指定なら自動で `yfinance` を使用します。
 - Alpha Vantageを使う場合は `price_provider.type` を `"alpha_vantage"` にし、APIキーを設定してください（レート制限あり）。
 
 **自動実行（cronの例）**
-- 毎営業日 16:30 に実行してメール送信:
+- 毎営業日 16:30 に実行して標準出力/HTML保存:
   - `crontab -e`
-  - 例: `30 16 * * 1-5 PN_ALPHA_VANTAGE_KEY=... PN_EMAIL_USERNAME=... PN_EMAIL_PASSWORD=... /usr/bin/python3 /path/to/portfolio_notify.py --config /path/to/config.json --portfolio /path/to/portfolio.csv`
+  - 例: `30 16 * * 1-5 PN_ALPHA_VANTAGE_KEY=... /usr/bin/python3 /path/to/portfolio_notify.py --config /path/to/config.json --portfolio /path/to/portfolio.csv --save-html /path/to/report.html`
 
 **制限・拡張**
 - 現在は通貨換算を行わず、各銘柄のクォート通貨で集計します（USD等）。
-- メール送信はSMTPに対応。別のプロバイダを希望の場合は相談ください。
+
 
 **iPhoneでアプリ風に使う（Mac不要・PWA）**
 - このリポジトリは `report.html` をPWA対応済みです（`manifest.webmanifest`, `service-worker.js` 追加）。
@@ -80,4 +80,18 @@
    - またはページ内で `localStorage.PF_API_BASE = 'https://your-subdomain.workers.dev/quote'` を一度設定。
 
 この代理APIはCORSヘッダを付け、Yahoo→Stooqの順に取得してJSONを返します。レスポンスは60秒程度キャッシュされます。
+
+**代理APIのレスポンスについて（DoD/MoM/YoY対応）**
+- `quotes[SYMBOL]` には下記の代表フィールドが含まれます:
+  - `regularMarketPrice`: 現在値（元通貨）
+  - `currency`: 通貨コード（`USD`/`JPY` など）
+  - `prevClose`: 前日終値（元通貨）
+  - `prevClose30d`/`prevClose365d`: 約30日前/365日前の基準終値（元通貨）
+  - `jpy`: 現在値のJPY換算（`.T` はそのまま、その他は現在のUSDJPYで近似換算）
+  - `prevJpy`/`prevJpy30d`/`prevJpy365d`: 上記基準値のJPY換算（近似）
+  - 変化率（小数、例: `0.045` は +4.5%）
+    - `usdDoD` / `usdMoM` / `usdYoY`
+    - `jpyDoD` / `jpyMoM` / `jpyYoY`
+
+注意: USD資産のJPY側の基準値は「現在の為替」で近似換算しているため、過去時点の為替を厳密に反映した変化率ではありません（比率は換算係数が同じためUSD/JPYとも同一になります）。
 # stock

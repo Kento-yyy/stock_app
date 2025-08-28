@@ -54,6 +54,24 @@ export default {
               if (y['USDJPY=X']) quotes['USDJPY=X'] = y['USDJPY=X'];
             } catch (e) {}
           }
+          // Merge prevClose (and currency if missing) from Yahoo for all symbols to enable DoD
+          try {
+            const yall = await fetchYahoo(symbols);
+            for (const s of Object.keys(yall)) {
+              quotes[s] = quotes[s] || {};
+              if (Number.isFinite(yall[s].prevClose)) quotes[s].prevClose = yall[s].prevClose;
+              if (!quotes[s].currency && yall[s].currency) quotes[s].currency = yall[s].currency;
+            }
+          } catch (e) {}
+          // Add 30d / 365d baselines from Yahoo charts
+          try {
+            const bases = await fetchYahooBaselines(symbols);
+            for (const s of Object.keys(bases)) {
+              quotes[s] = quotes[s] || {};
+              if (Number.isFinite(bases[s].prevClose30d)) quotes[s].prevClose30d = bases[s].prevClose30d;
+              if (Number.isFinite(bases[s].prevClose365d)) quotes[s].prevClose365d = bases[s].prevClose365d;
+            }
+          } catch (e) {}
           // If still empty, fallback to Yahoo for all symbols (last resort)
           if (Object.keys(quotes).length === 0) {
             try {
@@ -79,6 +97,15 @@ export default {
               } catch (e) {}
             }
           }
+          // Add baselines from Yahoo charts after Yahoo-first
+          try {
+            const bases = await fetchYahooBaselines(symbols);
+            for (const s of Object.keys(bases)) {
+              quotes[s] = quotes[s] || {};
+              if (Number.isFinite(bases[s].prevClose30d)) quotes[s].prevClose30d = bases[s].prevClose30d;
+              if (Number.isFinite(bases[s].prevClose365d)) quotes[s].prevClose365d = bases[s].prevClose365d;
+            }
+          } catch (e) {}
         }
 
         // 3) Normalize USDJPY (invert if necessary), ensure .T as JPY currency
@@ -106,6 +133,42 @@ export default {
             q.jpy = p;
           } else if (cur === 'USD' && Number.isFinite(usdJpy)) {
             q.jpy = p * usdJpy;
+          }
+          // Baseline JPY (approx using current FX for USD assets)
+          if (Number.isFinite(q.prevClose)) {
+            q.prevJpy = (cur === 'JPY' || /\.T$/i.test(s)) ? q.prevClose : (Number.isFinite(usdJpy) ? q.prevClose * usdJpy : undefined);
+          }
+          if (Number.isFinite(q.prevClose30d)) {
+            q.prevJpy30d = (cur === 'JPY' || /\.T$/i.test(s)) ? q.prevClose30d : (Number.isFinite(usdJpy) ? q.prevClose30d * usdJpy : undefined);
+          }
+          if (Number.isFinite(q.prevClose365d)) {
+            q.prevJpy365d = (cur === 'JPY' || /\.T$/i.test(s)) ? q.prevClose365d : (Number.isFinite(usdJpy) ? q.prevClose365d * usdJpy : undefined);
+          }
+
+          // Compute DoD/MoM/YoY percent changes in JPY domain if possible
+          const j = Number(q.jpy);
+          const pj1 = Number(q.prevJpy);
+          const pj30 = Number(q.prevJpy30d);
+          const pj365 = Number(q.prevJpy365d);
+          if (Number.isFinite(j) && Number.isFinite(pj1) && pj1 > 0) q.jpyDoD = (j - pj1) / pj1;
+          if (Number.isFinite(j) && Number.isFinite(pj30) && pj30 > 0) q.jpyMoM = (j - pj30) / pj30;
+          if (Number.isFinite(j) && Number.isFinite(pj365) && pj365 > 0) q.jpyYoY = (j - pj365) / pj365;
+
+          // Compute DoD/MoM/YoY percent changes in USD domain
+          const isUSD = (cur === 'USD');
+          const pu = Number(q.regularMarketPrice);
+          const pu1 = Number(q.prevClose);
+          const pu30 = Number(q.prevClose30d);
+          const pu365 = Number(q.prevClose365d);
+          if (isUSD) {
+            if (Number.isFinite(pu) && Number.isFinite(pu1) && pu1 > 0) q.usdDoD = (pu - pu1) / pu1;
+            if (Number.isFinite(pu) && Number.isFinite(pu30) && pu30 > 0) q.usdMoM = (pu - pu30) / pu30;
+            if (Number.isFinite(pu) && Number.isFinite(pu365) && pu365 > 0) q.usdYoY = (pu - pu365) / pu365;
+          } else {
+            // When not USD, ratios are identical across currencies if FX is applied consistently.
+            if (Number.isFinite(q.jpyDoD)) q.usdDoD = q.jpyDoD;
+            if (Number.isFinite(q.jpyMoM)) q.usdMoM = q.jpyMoM;
+            if (Number.isFinite(q.jpyYoY)) q.usdYoY = q.jpyYoY;
           }
         }
 
@@ -155,9 +218,28 @@ async function fetchYahoo(symbols) {
       const sym = String(r.symbol).toUpperCase();
       const obj = { regularMarketPrice: r.regularMarketPrice };
       if (r.currency) obj.currency = String(r.currency).toUpperCase();
+      if (Number.isFinite(r.regularMarketPreviousClose)) obj.prevClose = r.regularMarketPreviousClose;
       obj.source = 'yahoo';
       out[sym] = obj;
     }
+  }
+  // Ensure prevClose is populated per-symbol via chart when missing
+  const missingPrev = symbols.filter(s => {
+    const sym = String(s).toUpperCase();
+    return out[sym] && !Number.isFinite(out[sym].prevClose);
+  });
+  for (const s of missingPrev) {
+    try {
+      const r = await fetchYahooChart(String(s).toUpperCase());
+      if (r && r.indicators && r.indicators.quote && r.indicators.quote[0]){
+        const closes = r.indicators.quote[0].close || [];
+        const finite = closes.filter(x=>Number.isFinite(x));
+        if (finite.length >= 2) {
+          // previous close = the second latest finite close
+          out[String(s).toUpperCase()].prevClose = finite[finite.length-2];
+        }
+      }
+    } catch (e) {}
   }
   // Fallback per-symbol via v8 chart API if batch returned nothing
   if (!Object.keys(out).length) {
@@ -292,5 +374,67 @@ async function fetchStooq(symbols) {
       out[orig] = { ...parsedAll[stooqSym], source: 'stooq' };
     }
   }
+  return out;
+}
+
+async function fetchYahooChart(sym) {
+  const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
+  const enc = encodeURIComponent(sym);
+  const urls = [
+    `https://query2.finance.yahoo.com/v8/finance/chart/${enc}?range=2y&interval=1d`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${enc}?range=2y&interval=1d`
+  ];
+  for (const u of urls) {
+    try {
+      const res = await fetch(u, { headers: ua });
+      if (!res.ok) continue;
+      const j = await res.json();
+      const r = j && j.chart && j.chart.result && j.chart.result[0];
+      if (r && r.timestamp && r.indicators && r.indicators.quote && r.indicators.quote[0]) return r;
+    } catch (e) {}
+  }
+  return null;
+}
+
+function pickBaselineAt(r, daysAgo) {
+  try {
+    const ts = r.timestamp || [];
+    const q = (r.indicators && r.indicators.quote && r.indicators.quote[0]) || {};
+    const closes = q.close || [];
+    const now = Math.floor(Date.now()/1000);
+    const cutoff = now - Math.floor(daysAgo*86400);
+    let bestIdx = -1;
+    for (let i=0;i<ts.length;i++){
+      const t = ts[i];
+      const c = closes[i];
+      if (!Number.isFinite(c)) continue;
+      if (t <= cutoff) bestIdx = i; else break;
+    }
+    if (bestIdx >= 0) return closes[bestIdx];
+    for (let i=0;i<closes.length;i++){ if (Number.isFinite(closes[i])) return closes[i]; }
+  } catch(e) {}
+  return undefined;
+}
+
+async function fetchYahooBaselines(symbols) {
+  const out = {};
+  const list = symbols.slice();
+  let idx = 0;
+  const workers = Math.min(5, list.length);
+  async function run() {
+    for (;;) {
+      const i = idx++; if (i >= list.length) break;
+      const s = list[i];
+      const r = await fetchYahooChart(s);
+      if (!r) continue;
+      const b30 = pickBaselineAt(r, 30);
+      const b365 = pickBaselineAt(r, 365);
+      const sym = String(s).toUpperCase();
+      out[sym] = out[sym] || {};
+      if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
+      if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
+    }
+  }
+  await Promise.all(Array.from({length: workers}, run));
   return out;
 }
