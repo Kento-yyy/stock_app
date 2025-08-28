@@ -138,6 +138,13 @@
         var pad = (n)=> String(n).padStart(2,'0');
         return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
       }
+      function timeStr(ts){
+        try{
+          var d = new Date(ts);
+          var pad = (n)=> String(n).padStart(2,'0');
+          return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+        }catch(e){ return nowStr(); }
+      }
       function guessIsJPY(sym){ return /\.T$/i.test(sym || ''); }
       function numberFromCell(td){ if(!td) return NaN; var dv=td.getAttribute('data-value'); if(dv!=null) return parseFloat(dv); var t=(td.textContent||'').replace(/,/g,''); var n=parseFloat(t); return isNaN(n)?NaN:n; }
       function setNumCell(td, n, fmt, decimals){ if(!td) return; var val = (isFinite(n)? n : NaN); td.setAttribute('data-value', isFinite(val)? String(val): ''); if(!isFinite(val)){ td.textContent=''; return; } if(fmt==='JPY'){ td.textContent = Math.round(val).toLocaleString(); } else { td.textContent = val.toLocaleString(undefined,{minimumFractionDigits:decimals||2, maximumFractionDigits:decimals||2}); } }
@@ -182,6 +189,25 @@
         }catch(e){}
         return null;
       }
+      // Persist and restore last successful quotes in localStorage
+      function loadCachedQuotes(){
+        try{
+          var s = localStorage.getItem('PF_LAST_QUOTES');
+          if(!s) return null;
+          var j = JSON.parse(s);
+          if (j && j.quotes && typeof j.t === 'number') return j;
+        }catch(e){}
+        return null;
+      }
+      function saveCachedQuotes(quotes){
+        try{
+          if (quotes && Object.keys(quotes).length){
+            localStorage.setItem('PF_LAST_QUOTES', JSON.stringify({ t: Date.now(), quotes: quotes }));
+          }
+        }catch(e){}
+      }
+      var __pfAppliedCache = false;
+      var __pfCachedAt = 0;
       async function fetchViaProxy(symbols){
         var base = getApiBase();
         if(!base) throw new Error('no api');
@@ -395,9 +421,16 @@
           
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
+          saveCachedQuotes(quotes);
         } catch(e) {
-          
-          var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '更新失敗（ネットワーク/CORS）'; }
+          // On failure, show cached quotes if available
+          var cached = loadCachedQuotes();
+          if (cached && cached.quotes && Object.keys(cached.quotes).length){
+            updateTables(cached.quotes);
+            var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+timeStr(cached.t)+'（キャッシュ）'; }
+          } else {
+            var last2 = document.getElementById('pf-last-updated'); if(last2){ last2.textContent = '更新失敗（ネットワーク/CORS）'; }
+          }
         } finally {
           __pfRefreshing = false;
           if(btn){ btn.disabled = false; btn.textContent='更新'; }
@@ -406,6 +439,15 @@
       function readyRefresh(){
         var btn = document.getElementById('pf-refresh-btn'); if(btn){ btn.addEventListener('click', refresh); }
         // auto refresh on load and when back online/visible
+        // Apply cached quotes first (if any), then refresh network
+        try{
+          var cached = loadCachedQuotes();
+          if (cached && cached.quotes && Object.keys(cached.quotes).length){
+            __pfAppliedCache = true; __pfCachedAt = cached.t;
+            updateTables(cached.quotes);
+            var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+timeStr(cached.t)+'（キャッシュ）'; }
+          }
+        }catch(e){}
         refresh();
         window.addEventListener('online', refresh);
         document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') refresh(); });
