@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pf-cache-v1';
+const CACHE_NAME = 'pf-cache-v2';
 const PRECACHE_URLS = [
   './',
   './report.html',
@@ -28,6 +28,19 @@ self.addEventListener('fetch', (event) => {
   // Only cache same-origin; let cross-origin (e.g., Yahoo Finance) go to network
   if (url.origin !== self.location.origin) {
     event.respondWith(fetch(req).catch(() => caches.match(req)));
+    return;
+  }
+  // Network-first for navigations and report.html to avoid stale app shell
+  if (req.mode === 'navigate' || url.pathname.endsWith('/report.html') || url.pathname.endsWith('report.html')) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
     return;
   }
   event.respondWith(

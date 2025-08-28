@@ -318,16 +318,18 @@
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
           var apiBase = getApiBase();
+          dlog('[PF] refresh start', { syms, apiBase });
           if (apiBase) {
             // When explicit API is specified, honor it and don't mix sources
-            try { quotes = await fetchViaProxy(syms); } catch(e) {}
+            try { quotes = await fetchViaProxy(syms); } catch(e) { dlog('[PF] proxy error', e); }
           } else {
             // Yahoo first, then proxy if needed
-            try { quotes = await fetchYahoo(syms); } catch(e) {}
+            try { quotes = await fetchYahoo(syms); } catch(e) { dlog('[PF] yahoo error', e); }
             if (!Object.keys(quotes).length) {
-              try { quotes = await fetchViaProxy(syms); } catch(e2) {}
+              try { quotes = await fetchViaProxy(syms); } catch(e2) { dlog('[PF] proxy fallback error', e2); }
             }
           }
+          dlog('[PF] quotes keys', Object.keys(quotes||{}));
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
         } catch(e) {
