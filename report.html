@@ -251,19 +251,33 @@
             var isJPY = guessIsJPY(sym);
             var shares = numberFromCell(tr.cells[colShares]);
             var q = quotes[sym.toUpperCase()];
-            var price = q ? q.regularMarketPrice : undefined;
-            if (isFinite(price)){
-              if(isJPY){
-                if(colJpyP!=null) setNumCell(tr.cells[colJpyP], price, 'JPY');
-                if(colJpyV!=null) setNumCell(tr.cells[colJpyV], shares*price, 'JPY');
-                if(colUsdP!=null && isFinite(usdJpy)) setNumCell(tr.cells[colUsdP], price/usdJpy, 'USD', 2);
-                if(colUsdV!=null && isFinite(usdJpy)) setNumCell(tr.cells[colUsdV], shares*(price/usdJpy), 'USD', 2);
+            var priceUsd, priceJpy;
+            if (q && isFinite(q.regularMarketPrice)) {
+              var cur = (q.currency || '').toUpperCase();
+              if (cur === 'JPY') {
+                priceJpy = q.regularMarketPrice;
+                if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
+              } else if (cur === 'USD') {
+                priceUsd = q.regularMarketPrice;
+                if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
               } else {
-                if(colUsdP!=null) setNumCell(tr.cells[colUsdP], price, 'USD', 2);
-                if(colUsdV!=null) setNumCell(tr.cells[colUsdV], shares*price, 'USD', 2);
-                if(colJpyP!=null && isFinite(usdJpy)) setNumCell(tr.cells[colJpyP], price*usdJpy, 'JPY');
-                if(colJpyV!=null && isFinite(usdJpy)) setNumCell(tr.cells[colJpyV], shares*(price*usdJpy), 'JPY');
+                // Fallback by market: .T -> JPY, otherwise USD
+                if (isJPY) {
+                  priceJpy = q.regularMarketPrice;
+                  if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
+                } else {
+                  priceUsd = q.regularMarketPrice;
+                  if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
+                }
               }
+            }
+            if (isFinite(priceUsd)){
+              if(colUsdP!=null) setNumCell(tr.cells[colUsdP], priceUsd, 'USD', 2);
+              if(colUsdV!=null) setNumCell(tr.cells[colUsdV], shares*priceUsd, 'USD', 2);
+            }
+            if (isFinite(priceJpy)){
+              if(colJpyP!=null) setNumCell(tr.cells[colJpyP], priceJpy, 'JPY');
+              if(colJpyV!=null) setNumCell(tr.cells[colJpyV], shares*priceJpy, 'JPY');
             }
             if(colUsdV!=null){ var v = numberFromCell(tr.cells[colUsdV]); if(isFinite(v)) sumUsd += v; }
             if(colJpyV!=null){ var w = numberFromCell(tr.cells[colJpyV]); if(isFinite(w)) sumJpy += w; }
@@ -301,6 +315,19 @@
           try { quotes = await fetchViaProxy(syms); } catch(e) {}
           if (!Object.keys(quotes).length) {
             try { quotes = await fetchYahoo(syms); } catch(e) {}
+          }
+          // If Yahoo returned non-JPY currency for .T symbols, try to replace with Stooq
+          var needsJpyFix = syms.filter(function(s){
+            if (!/\.T$/i.test(s)) return false;
+            var q = quotes[s]; if (!q) return false;
+            var cur = (q.currency || '').toUpperCase();
+            return cur && cur !== 'JPY';
+          });
+          if (needsJpyFix.length) {
+            try {
+              var qFix = await fetchStooq(needsJpyFix);
+              needsJpyFix.forEach(function(s){ if (qFix && qFix[s]) quotes[s] = qFix[s]; });
+            } catch(e3) {}
           }
           // Fill only missing symbols via Stooq (do not overwrite existing)
           var missing = syms.filter(function(s){ return !quotes[s]; });
