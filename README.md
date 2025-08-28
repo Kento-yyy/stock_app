@@ -67,3 +67,4 @@
   - 共有メニュー > 「ホーム画面に追加」。
 - オフライン: HTTPS配信時にservice workerが有効になり、`report.html` はオフラインでも開けます。追加でキャッシュしたいファイルがあれば `service-worker.js` の `PRECACHE_URLS` に追記してください。
 - アイコン: iOSのホームアイコンをカスタムしたい場合は `icons/apple-touch-icon.png` を用意し、`report.html` の `apple-touch-icon` リンク先に置いてください（未設定でも動作します）。
+# stock
