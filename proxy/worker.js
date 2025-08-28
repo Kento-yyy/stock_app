@@ -11,20 +11,43 @@ export default {
         let symbols = symsParam.split(',').map(s => s.trim()).filter(Boolean);
         symbols = [...new Set(symbols.map(s => s.toUpperCase()))];
 
-        // Try Yahoo, then fill missing from Stooq
+        const useFallback = url.searchParams.get('fallback') === 'stooq';
+        const debug = url.searchParams.get('debug') === '1';
+
+        // 1) Yahoo first
         let quotes = {};
         try {
-          quotes = await fetchYahoo(symbols);
+          quotes = await fetchYahoo(symbols, debug);
         } catch (e) {
-          // ignore and try stooq
+          // swallow; may fallback
         }
-        const missing = symbols.filter(s => !quotes[s]);
-        if (missing.length) {
-          try {
-            const add = await fetchStooq(missing);
-            quotes = { ...quotes, ...add };
-          } catch (e) {}
+
+        // 2) Optional fallback: fill only missing from Stooq
+        if (useFallback) {
+          const missing = symbols.filter(s => !quotes[s]);
+          if (missing.length) {
+            try {
+              const add = await fetchStooq(missing, debug);
+              for (const s of missing) {
+                if (add[s] && quotes[s] == null) quotes[s] = add[s];
+              }
+            } catch (e) {}
+          }
         }
+
+        // 3) Normalize USDJPY (invert if necessary), ensure .T as JPY currency
+        if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)) {
+          const r = quotes['USDJPY=X'].regularMarketPrice;
+          if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
+          quotes['USDJPY=X'].currency = 'JPY';
+          quotes['USDJPY=X'].source = quotes['USDJPY=X'].source || 'yahoo';
+        }
+        for (const s of Object.keys(quotes)) {
+          if (/\.T$/i.test(s)) {
+            quotes[s].currency = 'JPY';
+          }
+        }
+
         return json({ quotes }, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
       }
       return json({ error: 'not found' }, 404);
@@ -48,7 +71,7 @@ function json(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj), { status, headers: corsHeaders(extraHeaders) });
 }
 
-async function fetchYahoo(symbols) {
+async function fetchYahoo(symbols, debug = false) {
   if (!symbols.length) return {};
   const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','));
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)' } });
@@ -58,7 +81,11 @@ async function fetchYahoo(symbols) {
   const out = {};
   for (const r of arr) {
     if (r && r.symbol && Number.isFinite(r.regularMarketPrice)) {
-      out[String(r.symbol).toUpperCase()] = { regularMarketPrice: r.regularMarketPrice };
+      const sym = String(r.symbol).toUpperCase();
+      const obj = { regularMarketPrice: r.regularMarketPrice };
+      if (r.currency) obj.currency = String(r.currency).toUpperCase();
+      obj.source = 'yahoo';
+      out[sym] = obj;
     }
   }
   return out;
@@ -93,7 +120,7 @@ function parseStooqCSV(text) {
   return out;
 }
 
-async function fetchStooq(symbols) {
+async function fetchStooq(symbols, debug = false) {
   if (!symbols.length) return {};
   const m = mapToStooqSymbols(symbols);
   const stooqSyms = Object.keys(m);
@@ -105,8 +132,9 @@ async function fetchStooq(symbols) {
   const out = {};
   for (const stooqSym of Object.keys(parsed)) {
     const orig = m[stooqSym];
-    if (orig) out[orig] = parsed[stooqSym];
+    if (orig) {
+      out[orig] = { ...parsed[stooqSym], source: 'stooq' };
+    }
   }
   return out;
 }
-

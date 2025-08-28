@@ -165,12 +165,23 @@
       async function fetchViaProxy(symbols){
         var base = getApiBase();
         if(!base) throw new Error('no api');
-        var url = base + (base.includes('?') ? '&' : '?') + 'symbols=' + encodeURIComponent(symbols.join(','));
-        var res = await fetch(url, {cache:'no-store'});
-        if(!res.ok) throw new Error('proxy HTTP '+res.status);
-        var j = await res.json();
-        var out = (j && j.quotes) || {};
-        return out;
+        var qs = encodeURIComponent(symbols.join(','));
+        var url1 = base + (base.includes('?') ? '&' : '?') + 'symbols=' + qs;
+        var res1 = await fetch(url1, {cache:'no-store'});
+        if (res1.ok) {
+          try {
+            var j1 = await res1.json();
+            var out1 = (j1 && j1.quotes) || {};
+            if (Object.keys(out1).length) return out1;
+          } catch(_) {}
+        }
+        // Fallback to 's=' query param
+        var url2 = base + (base.includes('?') ? '&' : '?') + 's=' + qs;
+        var res2 = await fetch(url2, {cache:'no-store'});
+        if(!res2.ok) throw new Error('proxy HTTP '+res2.status);
+        var j2 = await res2.json();
+        var out2 = (j2 && j2.quotes) || {};
+        return out2;
       }
       async function fetchYahoo(symbols){
         if(!symbols || !symbols.length) return {};
@@ -333,6 +344,7 @@
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
         } catch(e) {
+          dlog('[PF] refresh failed', e);
           var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '更新失敗（ネットワーク/CORS）'; }
         } finally {
           __pfRefreshing = false;
