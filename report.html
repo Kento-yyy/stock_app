@@ -30,6 +30,9 @@
         
     <script>
     (function(){
+      var PF_DEBUG = false;
+      try { PF_DEBUG = String(localStorage.getItem('PF_DEBUG')) === '1'; } catch(e) {}
+      function dlog(){ if (PF_DEBUG) { try { console.debug.apply(console, arguments); } catch(e) {} } }
       function fmtUSD(n){ return (isNaN(n) ? '' : n.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})); }
       function fmtJPY(n){ return (isNaN(n) ? '' : Math.round(n).toLocaleString()); }
       function getCellValue(cell, type){
@@ -234,6 +237,7 @@
         if (isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) {
           usdJpy = 1 / usdJpy;
         }
+        dlog('[PF] USDJPY used =', usdJpy, 'raw=', quotes['USDJPY=X']);
         tables.forEach(function(table){
           var idx = headerIndexMap(table);
           var colSym = idx['SYMBOL'];
@@ -254,23 +258,21 @@
             var priceUsd, priceJpy;
             if (q && isFinite(q.regularMarketPrice)) {
               var cur = (q.currency || '').toUpperCase();
-              if (cur === 'JPY') {
+              if (isJPY) {
+                // JP銘柄（.T）は常にJPY建てとして扱う（Yahooのcurrencyが誤っていても無視）
                 priceJpy = q.regularMarketPrice;
                 if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
-              } else if (cur === 'USD') {
-                priceUsd = q.regularMarketPrice;
-                if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
               } else {
-                // Fallback by market: .T -> JPY, otherwise USD
-                if (isJPY) {
+                if (cur === 'JPY') {
                   priceJpy = q.regularMarketPrice;
                   if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
-                } else {
+                } else { // treat as USD by default
                   priceUsd = q.regularMarketPrice;
                   if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
                 }
               }
             }
+            dlog('[PF] calc', sym, {isJPY:isJPY, cur:q && q.currency, rmp: q && q.regularMarketPrice, priceUsd, priceJpy});
             if (isFinite(priceUsd)){
               if(colUsdP!=null) setNumCell(tr.cells[colUsdP], priceUsd, 'USD', 2);
               if(colUsdV!=null) setNumCell(tr.cells[colUsdV], shares*priceUsd, 'USD', 2);
@@ -315,11 +317,16 @@
           syms = Array.from(new Set(syms.map(function(s){return s.toUpperCase();})));
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
-          // Yahoo first
-          try { quotes = await fetchYahoo(syms); } catch(e) {}
-          // Fallback to proxy (which itself tries Yahoo first) if Yahoo failed
-          if (!Object.keys(quotes).length) {
-            try { quotes = await fetchViaProxy(syms); } catch(e2) {}
+          var apiBase = getApiBase();
+          if (apiBase) {
+            // When explicit API is specified, honor it and don't mix sources
+            try { quotes = await fetchViaProxy(syms); } catch(e) {}
+          } else {
+            // Yahoo first, then proxy if needed
+            try { quotes = await fetchYahoo(syms); } catch(e) {}
+            if (!Object.keys(quotes).length) {
+              try { quotes = await fetchViaProxy(syms); } catch(e2) {}
+            }
           }
           if (Object.keys(quotes).length === 0) throw new Error('no data');
           updateTables(quotes);
