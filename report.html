@@ -251,6 +251,13 @@
             var m30 = _finite(q.prevClose30d); if (m30 !== undefined) o.m30 = m30;
             var y365 = _finite(q.prevClose365d); if (y365 !== undefined) o.y365 = y365;
             var j = _finite(q.jpy); if (j !== undefined) o.jpy = j;
+            // Percent changes (cache too)
+            var uD = _finite(q.usdDoD); if (uD !== undefined) o.uD = uD;
+            var uM = _finite(q.usdMoM); if (uM !== undefined) o.uM = uM;
+            var uY = _finite(q.usdYoY); if (uY !== undefined) o.uY = uY;
+            var jD = _finite(q.jpyDoD); if (jD !== undefined) o.jD = jD;
+            var jM = _finite(q.jpyMoM); if (jM !== undefined) o.jM = jM;
+            var jY = _finite(q.jpyYoY); if (jY !== undefined) o.jY = jY;
             if (q.currency) o.c = String(q.currency).toUpperCase();
             if (q.source) o.src = String(q.source);
             if (Object.keys(o).length) snap[String(sym).toUpperCase()] = o;
@@ -307,6 +314,12 @@
               if ('m30' in d) parts.push('m30=' + d.m30);
               if ('y365' in d) parts.push('y365=' + d.y365);
               if ('jpy' in d) parts.push('jpy=' + d.jpy);
+              if ('uD' in d) parts.push('usdDoD=' + (d.uD>=0?'+':'') + (d.uD*100).toFixed(2) + '%');
+              if ('uM' in d) parts.push('usdMoM=' + (d.uM>=0?'+':'') + (d.uM*100).toFixed(2) + '%');
+              if ('uY' in d) parts.push('usdYoY=' + (d.uY>=0?'+':'') + (d.uY*100).toFixed(2) + '%');
+              if ('jD' in d) parts.push('jpyDoD=' + (d.jD>=0?'+':'') + (d.jD*100).toFixed(2) + '%');
+              if ('jM' in d) parts.push('jpyMoM=' + (d.jM>=0?'+':'') + (d.jM*100).toFixed(2) + '%');
+              if ('jY' in d) parts.push('jpyYoY=' + (d.jY>=0?'+':'') + (d.jY*100).toFixed(2) + '%');
               if ('c' in d) parts.push('c=' + d.c);
               if ('src' in d) parts.push('src=' + d.src);
               lines.push('  ' + sym + ': ' + parts.join(' '));
@@ -416,6 +429,9 @@
         if (isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) {
           usdJpy = 1 / usdJpy;
         }
+        // Load cached quotes to optionally backfill percent fields when missing
+        var cached = loadCachedQuotes();
+        var cachedQuotes = (cached && cached.quotes) || {};
         
         tables.forEach(function(table){
           try { tagTableColumns(table); } catch(e){}
@@ -514,6 +530,15 @@
                 }
                 if (isFinite(prevUsd365) && prevUsd365>0) usdYoY = (priceUsd - prevUsd365)/prevUsd365;
               }
+              if (!isFinite(usdDoD) || !isFinite(usdMoM) || !isFinite(usdYoY)){
+                // Backfill from cached percent metrics if available
+                try{
+                  var cq = cachedQuotes[sym.toUpperCase()] || {};
+                  if (!isFinite(usdDoD) && isFinite(cq.usdDoD)) usdDoD = cq.usdDoD;
+                  if (!isFinite(usdMoM) && isFinite(cq.usdMoM)) usdMoM = cq.usdMoM;
+                  if (!isFinite(usdYoY) && isFinite(cq.usdYoY)) usdYoY = cq.usdYoY;
+                }catch(_){ }
+              }
               if (cellUsdDoD) setPctCell(cellUsdDoD, (isFinite(usdDoD) ? usdDoD : NaN));
               if (cellUsdMoM) setPctCell(cellUsdMoM, (isFinite(usdMoM) ? usdMoM : NaN));
               if (cellUsdYoY) setPctCell(cellUsdYoY, (isFinite(usdYoY) ? usdYoY : NaN));
@@ -537,6 +562,14 @@
                 var prevJ365 = q && (q.prevJpy365d);
                 if (!isFinite(prevJ365) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ365 = q.prevClose365d;
                 if (isFinite(prevJ365) && prevJ365>0) jpyYoY = (priceJpy - prevJ365)/prevJ365;
+              }
+              if (!isFinite(jpyDoD) || !isFinite(jpyMoM) || !isFinite(jpyYoY)){
+                try{
+                  var cq2 = cachedQuotes[sym.toUpperCase()] || {};
+                  if (!isFinite(jpyDoD) && isFinite(cq2.jpyDoD)) jpyDoD = cq2.jpyDoD;
+                  if (!isFinite(jpyMoM) && isFinite(cq2.jpyMoM)) jpyMoM = cq2.jpyMoM;
+                  if (!isFinite(jpyYoY) && isFinite(cq2.jpyYoY)) jpyYoY = cq2.jpyYoY;
+                }catch(_){ }
               }
               if (cellJpyDoD) setPctCell(cellJpyDoD, (isFinite(jpyDoD) ? jpyDoD : NaN));
               if (cellJpyMoM) setPctCell(cellJpyMoM, (isFinite(jpyMoM) ? jpyMoM : NaN));
