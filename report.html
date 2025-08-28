@@ -304,7 +304,10 @@
           } catch(e){}
         });
       }
+      var __pfRefreshing = false;
       async function refresh(){
+        if (__pfRefreshing) return; // avoid overlapping refreshes
+        __pfRefreshing = true;
         var btn = document.getElementById('pf-refresh-btn'); if(btn){ btn.disabled = true; btn.textContent='更新中…'; }
         try{
           var syms = [];
@@ -312,24 +315,23 @@
           syms = Array.from(new Set(syms.map(function(s){return s.toUpperCase();})));
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
-          try { quotes = await fetchViaProxy(syms); } catch(e) {}
-          if (!Object.keys(quotes).length) {
-            try { quotes = await fetchYahoo(syms); } catch(e) {}
+          var jpxSyms = syms.filter(function(s){ return /\.T$/i.test(s); });
+          var nonJpxSyms = syms.filter(function(s){ return !/\.T$/i.test(s); });
+          // 1) Fetch non-JPX via proxy or Yahoo
+          if (nonJpxSyms.length) {
+            try { quotes = await fetchViaProxy(nonJpxSyms); } catch(e) {}
+            if (!Object.keys(quotes).length) {
+              try { quotes = await fetchYahoo(nonJpxSyms); } catch(e) {}
+            }
           }
-          // If Yahoo returned non-JPY currency for .T symbols, try to replace with Stooq
-          var needsJpyFix = syms.filter(function(s){
-            if (!/\.T$/i.test(s)) return false;
-            var q = quotes[s]; if (!q) return false;
-            var cur = (q.currency || '').toUpperCase();
-            return cur && cur !== 'JPY';
-          });
-          if (needsJpyFix.length) {
+          // 2) Fetch JPX symbols from Stooq as the source of truth
+          if (jpxSyms.length) {
             try {
-              var qFix = await fetchStooq(needsJpyFix);
-              needsJpyFix.forEach(function(s){ if (qFix && qFix[s]) quotes[s] = qFix[s]; });
-            } catch(e3) {}
+              var qJpx = await fetchStooq(jpxSyms);
+              jpxSyms.forEach(function(s){ if (qJpx && qJpx[s]) quotes[s] = qJpx[s]; });
+            } catch(ej) {}
           }
-          // Fill only missing symbols via Stooq (do not overwrite existing)
+          // 3) Backfill any remaining missing symbols (rare)
           var missing = syms.filter(function(s){ return !quotes[s]; });
           if (missing.length) {
             try {
@@ -342,6 +344,7 @@
         } catch(e) {
           var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '更新失敗（ネットワーク/CORS）'; }
         } finally {
+          __pfRefreshing = false;
           if(btn){ btn.disabled = false; btn.textContent='更新'; }
         }
       }
