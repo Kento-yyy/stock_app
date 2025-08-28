@@ -1,0 +1,9 @@
+{
+  "name": "Portfolio Report",
+  "short_name": "Portfolio",
+  "start_url": "./report.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff"
+}
+
