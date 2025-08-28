@@ -230,6 +230,10 @@
         if(title){ var t = (title.textContent||''); title.textContent = t.replace(/\(.*?\)/, '('+nowStr()+')'); }
         var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+nowStr(); }
         var usdJpy = quotes['USDJPY=X'] && quotes['USDJPY=X'].regularMarketPrice;
+        // Normalize USDJPY: if rate looks inverted (e.g., 0.0067), flip it
+        if (isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) {
+          usdJpy = 1 / usdJpy;
+        }
         tables.forEach(function(table){
           var idx = headerIndexMap(table);
           var colSym = idx['SYMBOL'];
@@ -294,18 +298,16 @@
           syms = Array.from(new Set(syms.map(function(s){return s.toUpperCase();})));
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
-          var hadProxyError = false;
-          try { quotes = await fetchViaProxy(syms); } catch(e) { hadProxyError = true; }
-          var hadYahooError = false;
+          try { quotes = await fetchViaProxy(syms); } catch(e) {}
           if (!Object.keys(quotes).length) {
-            try { quotes = await fetchYahoo(syms); } catch(e) { hadYahooError = true; }
+            try { quotes = await fetchYahoo(syms); } catch(e) {}
           }
-          // Fill missing (or all if Yahoo failed) from Stooq
+          // Fill only missing symbols via Stooq (do not overwrite existing)
           var missing = syms.filter(function(s){ return !quotes[s]; });
-          if (hadProxyError || hadYahooError || missing.length) {
+          if (missing.length) {
             try {
-              var q2 = await fetchStooq(syms);
-              Object.assign(quotes, q2);
+              var q2 = await fetchStooq(missing);
+              missing.forEach(function(s){ if (q2 && q2[s]) quotes[s] = q2[s]; });
             } catch(e2) {}
           }
           if (Object.keys(quotes).length === 0) throw new Error('no data');
