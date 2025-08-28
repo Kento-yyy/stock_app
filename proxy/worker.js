@@ -63,11 +63,12 @@ export default {
               if (!quotes[s].currency && yall[s].currency) quotes[s].currency = yall[s].currency;
             }
           } catch (e) {}
-          // Add 30d / 365d baselines from Yahoo charts
+          // Add 1d / 30d / 365d closes from Yahoo charts
           try {
             const bases = await fetchYahooBaselines(symbols);
             for (const s of Object.keys(bases)) {
               quotes[s] = quotes[s] || {};
+              if (Number.isFinite(bases[s].prevClose)) quotes[s].prevClose = bases[s].prevClose;
               if (Number.isFinite(bases[s].prevClose30d)) quotes[s].prevClose30d = bases[s].prevClose30d;
               if (Number.isFinite(bases[s].prevClose365d)) quotes[s].prevClose365d = bases[s].prevClose365d;
             }
@@ -97,11 +98,12 @@ export default {
               } catch (e) {}
             }
           }
-          // Add baselines from Yahoo charts after Yahoo-first
+          // Add 1d / 30d / 365d closes from Yahoo charts after Yahoo-first
           try {
             const bases = await fetchYahooBaselines(symbols);
             for (const s of Object.keys(bases)) {
               quotes[s] = quotes[s] || {};
+              if (Number.isFinite(bases[s].prevClose)) quotes[s].prevClose = bases[s].prevClose;
               if (Number.isFinite(bases[s].prevClose30d)) quotes[s].prevClose30d = bases[s].prevClose30d;
               if (Number.isFinite(bases[s].prevClose365d)) quotes[s].prevClose365d = bases[s].prevClose365d;
             }
@@ -427,10 +429,25 @@ async function fetchYahooBaselines(symbols) {
       const s = list[i];
       const r = await fetchYahooChart(s);
       if (!r) continue;
+      // Determine previous trading day's close and baselines
+      let prev1d;
+      try {
+        const q = (r.indicators && r.indicators.quote && r.indicators.quote[0]) || {};
+        const closes = (q.close || []).slice();
+        // scan from tail to find last two finite closes
+        let found = 0;
+        for (let j = closes.length - 1; j >= 0; j--) {
+          const c = closes[j];
+          if (!Number.isFinite(c)) continue;
+          found++;
+          if (found === 2) { prev1d = c; break; }
+        }
+      } catch (e) {}
       const b30 = pickBaselineAt(r, 30);
       const b365 = pickBaselineAt(r, 365);
       const sym = String(s).toUpperCase();
       out[sym] = out[sym] || {};
+      if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
       if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
       if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
     }
