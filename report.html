@@ -170,7 +170,9 @@
         if(!base) throw new Error('no api');
         var qs = encodeURIComponent(symbols.join(','));
         var sep = base.includes('?') ? '&' : '?';
-        var url1 = base + sep + 'symbols=' + qs + '&fallback=stooq';
+        // Prefer Stooq at the worker, and let it fill missing via Yahoo
+        var url1 = base + sep + 'symbols=' + qs + '&prefer=stooq';
+        dlog('[PF] fetchViaProxy url1', url1);
         var res1 = await fetch(url1, {cache:'no-store'});
         if (res1.ok) {
           try {
@@ -180,7 +182,8 @@
           } catch(_) {}
         }
         // Fallback to 's=' query param
-        var url2 = base + sep + 's=' + qs + '&fallback=stooq';
+        var url2 = base + sep + 's=' + qs + '&prefer=stooq';
+        dlog('[PF] fetchViaProxy url2', url2);
         var res2 = await fetch(url2, {cache:'no-store'});
         if(!res2.ok) throw new Error('proxy HTTP '+res2.status);
         var j2 = await res2.json();
@@ -271,19 +274,24 @@
             var shares = numberFromCell(tr.cells[colShares]);
             var q = quotes[sym.toUpperCase()];
             var priceUsd, priceJpy;
-            if (q && isFinite(q.regularMarketPrice)) {
-              var cur = (q.currency || '').toUpperCase();
-              if (isJPY) {
-                // JP銘柄（.T）は常にJPY建てとして扱う（Yahooのcurrencyが誤っていても無視）
-                priceJpy = q.regularMarketPrice;
+            if (q && (isFinite(q.regularMarketPrice) || isFinite(q.jpy))) {
+              // Prefer server-normalized JPY if provided
+              if (isFinite(q.jpy)) {
+                priceJpy = q.jpy;
                 if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
               } else {
-                if (cur === 'JPY') {
+                var cur = (q.currency || '').toUpperCase();
+                if (isJPY) {
                   priceJpy = q.regularMarketPrice;
                   if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
-                } else { // treat as USD by default
-                  priceUsd = q.regularMarketPrice;
-                  if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
+                } else {
+                  if (cur === 'JPY') {
+                    priceJpy = q.regularMarketPrice;
+                    if (isFinite(usdJpy)) priceUsd = priceJpy / usdJpy;
+                  } else { // treat as USD by default
+                    priceUsd = q.regularMarketPrice;
+                    if (isFinite(usdJpy)) priceJpy = priceUsd * usdJpy;
+                  }
                 }
               }
             }
@@ -335,13 +343,13 @@
           var apiBase = getApiBase();
           dlog('[PF] refresh start', { syms, apiBase });
           if (apiBase) {
-            // When explicit API is specified, honor it and don't mix sources
+            // When explicit API is specified, honor it and prefer Stooq at the worker
             try { quotes = await fetchViaProxy(syms); } catch(e) { dlog('[PF] proxy error', e); }
           } else {
-            // Yahoo first, then proxy if needed
-            try { quotes = await fetchYahoo(syms); } catch(e) { dlog('[PF] yahoo error', e); }
+            // Prefer Stooq directly, then Yahoo as fallback (no API)
+            try { quotes = await fetchStooq(syms); } catch(e) { dlog('[PF] stooq error', e); }
             if (!Object.keys(quotes).length) {
-              try { quotes = await fetchViaProxy(syms); } catch(e2) { dlog('[PF] proxy fallback error', e2); }
+              try { quotes = await fetchYahoo(syms); } catch(e2) { dlog('[PF] yahoo fallback error', e2); }
             }
           }
           dlog('[PF] quotes keys', Object.keys(quotes||{}));

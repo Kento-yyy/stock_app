@@ -5,33 +5,88 @@ export default {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: corsHeaders() });
       }
-      if (url.pathname === '/' || url.pathname === '/quote') {
-        const symsParam = url.searchParams.get('symbols') || url.searchParams.get('s');
-        if (!symsParam) return json({ error: 'missing symbols' }, 400);
-        let symbols = symsParam.split(',').map(s => s.trim()).filter(Boolean);
+      if (url.pathname === '/' || url.pathname.startsWith('/quote')) {
+        const symsParam = url.searchParams.get('symbols')
+          || url.searchParams.get('s')
+          || url.searchParams.get('symbol')
+          || url.searchParams.get('q');
+        let symbols = [];
+        if (symsParam) {
+          symbols = symsParam.split(',').map(s => s.trim()).filter(Boolean);
+        } else if (/^\/quote\//.test(url.pathname)) {
+          const tail = url.pathname.replace(/^\/quote\//, '');
+          symbols = decodeURIComponent(tail).split(',').map(s => s.trim()).filter(Boolean);
+        }
+        if (!symbols.length) return json({ error: 'missing symbols' }, 400);
+        
         symbols = [...new Set(symbols.map(s => s.toUpperCase()))];
 
+        const preferStooq = url.searchParams.get('prefer') === 'stooq' || url.searchParams.get('source') === 'stooq';
         const useFallback = url.searchParams.get('fallback') === 'stooq';
         const debug = url.searchParams.get('debug') === '1';
+        const meta = debug ? { symbols, preferStooq, useFallback } : undefined;
 
-        // 1) Yahoo first
         let quotes = {};
-        try {
-          quotes = await fetchYahoo(symbols, debug);
-        } catch (e) {
-          // swallow; may fallback
-        }
-
-        // 2) Optional fallback: fill only missing from Stooq
-        if (useFallback) {
+        if (preferStooq) {
+          // Stooq first
+          try {
+            quotes = await fetchStooq(symbols, debug);
+            if (meta) meta.stooqCount = Object.keys(quotes).length;
+          } catch (e) {}
+          // Fill missing from Yahoo (only for non-.T symbols to avoid JP mis-currency)
           const missing = symbols.filter(s => !quotes[s]);
-          if (missing.length) {
+          const missingNonJpx = missing.filter(s => !/\.T$/i.test(s));
+          if (missingNonJpx.length) {
             try {
-              const add = await fetchStooq(missing, debug);
-              for (const s of missing) {
-                if (add[s] && quotes[s] == null) quotes[s] = add[s];
-              }
+              const add = await fetchYahoo(missingNonJpx, debug);
+              for (const s of missingNonJpx) { if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
+              if (meta) meta.yahooFilled = (meta.yahooFilled || 0) + Object.keys(add).length;
             } catch (e) {}
+          }
+          // Still missing? allow Yahoo fill even for .T to avoid empty quotes
+          const missingAll = symbols.filter(s => !quotes[s]);
+          if (missingAll.length) {
+            try {
+              const addAll = await fetchYahoo(missingAll, debug);
+              for (const s of missingAll) { if (addAll[s] && quotes[s] == null) quotes[s] = addAll[s]; }
+              if (meta) meta.yahooFilledAll = (meta.yahooFilledAll || 0) + Object.keys(addAll).length;
+            } catch (e) {}
+          }
+          // Always ensure USDJPY=X is present by Yahoo if Stooq didn't provide it
+          if (!quotes['USDJPY=X'] && symbols.includes('USDJPY=X')) {
+            try {
+              const y = await fetchYahoo(['USDJPY=X'], debug);
+              if (y['USDJPY=X']) quotes['USDJPY=X'] = y['USDJPY=X'];
+              if (meta) meta.usdjpyFilled = true;
+            } catch (e) {}
+          }
+          // If still empty, fallback to Yahoo for all symbols (last resort)
+          if (Object.keys(quotes).length === 0) {
+            try {
+              quotes = await fetchYahoo(symbols, debug);
+              if (meta) meta.yahooFallbackAll = true;
+            } catch (e) {}
+          }
+        } else {
+          // Yahoo first
+          try {
+            quotes = await fetchYahoo(symbols, debug);
+            if (meta) meta.yahooCount = Object.keys(quotes).length;
+          } catch (e) {
+            // swallow; may fallback
+          }
+          // Optional fallback: fill only missing from Stooq
+          if (useFallback) {
+            const missing = symbols.filter(s => !quotes[s]);
+            if (missing.length) {
+              try {
+                const add = await fetchStooq(missing, debug);
+                for (const s of missing) {
+                  if (add[s] && quotes[s] == null) quotes[s] = add[s];
+                }
+                if (meta) meta.stooqFilled = (meta.stooqFilled || 0) + Object.keys(add).length;
+              } catch (e) {}
+            }
           }
         }
 
@@ -48,7 +103,23 @@ export default {
           }
         }
 
-        return json({ quotes }, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
+        // Compute normalized JPY price using USDJPY when needed
+        let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
+        if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
+        for (const s of Object.keys(quotes)) {
+          const q = quotes[s];
+          const p = Number(q && q.regularMarketPrice);
+          if (!Number.isFinite(p)) continue;
+          const cur = String(q.currency || '').toUpperCase();
+          if (cur === 'JPY' || /\.T$/i.test(s)) {
+            q.jpy = p;
+          } else if (cur === 'USD' && Number.isFinite(usdJpy)) {
+            q.jpy = p * usdJpy;
+          }
+        }
+
+        const body = meta ? { quotes, meta } : { quotes };
+        return json(body, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
       }
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -73,11 +144,21 @@ function json(obj, status = 200, extraHeaders = {}) {
 
 async function fetchYahoo(symbols, debug = false) {
   if (!symbols.length) return {};
-  const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','));
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)' } });
-  if (!res.ok) throw new Error('Yahoo HTTP ' + res.status);
-  const j = await res.json();
-  const arr = (j && j.quoteResponse && j.quoteResponse.result) || [];
+  const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
+  const urls = [
+    'https://query2.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(',')),
+    'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','))
+  ];
+  let arr = [];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { headers: ua });
+      if (!res.ok) continue;
+      const j = await res.json();
+      arr = (j && j.quoteResponse && j.quoteResponse.result) || [];
+      if (arr.length) break;
+    } catch (e) { /* try next */ }
+  }
   const out = {};
   for (const r of arr) {
     if (r && r.symbol && Number.isFinite(r.regularMarketPrice)) {
@@ -88,18 +169,74 @@ async function fetchYahoo(symbols, debug = false) {
       out[sym] = obj;
     }
   }
+  // Fallback per-symbol via v8 chart API if batch returned nothing
+  if (!Object.keys(out).length) {
+    for (const s of symbols) {
+      const sym = String(s).toUpperCase();
+      const chartUrls = [
+        `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=1d`,
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=1d`
+      ];
+      for (const cu of chartUrls) {
+        try {
+          const res = await fetch(cu, { headers: ua });
+          if (!res.ok) continue;
+          const j = await res.json();
+          const r = j && j.chart && j.chart.result && j.chart.result[0];
+          if (!r || !r.meta) continue;
+          let price = r.meta.regularMarketPrice;
+          if (!Number.isFinite(price)) {
+            // try last close when meta missing
+            const ind = r.indicators && r.indicators.quote && r.indicators.quote[0];
+            if (ind && Array.isArray(ind.close)) {
+              const closes = ind.close.filter((x)=>Number.isFinite(x));
+              if (closes.length) price = closes[closes.length-1];
+            }
+          }
+          if (Number.isFinite(price)) {
+            const obj = { regularMarketPrice: price, source: 'yahoo' };
+            if (r.meta.currency) obj.currency = String(r.meta.currency).toUpperCase();
+            out[sym] = obj;
+            break;
+          }
+        } catch (e) { /* try next */ }
+      }
+    }
+  }
   return out;
 }
 
-function mapToStooqSymbols(symbols) {
-  const map = {}; // stooqSym -> original
-  for (const sym of symbols) {
-    const s = String(sym).toUpperCase();
-    if (s === 'USDJPY=X') { map['usdjpy'] = s; continue; }
-    if (/\.T$/.test(s)) { map[s.replace(/\.T$/, '').toLowerCase() + '.jp'] = s; continue; }
-    map[s.toLowerCase() + '.us'] = s; // default to US
+function stooqVariantsForSymbol(sym) {
+  const s = String(sym).toUpperCase();
+  // USDJPY special
+  if (s === 'USDJPY=X') return ['usdjpy', 'USDJPY'];
+  // JP stocks like 8306.T → try multiple forms
+  if (/\.T$/.test(s)) {
+    const base = s.replace(/\.T$/, '');
+    return [
+      base.toLowerCase() + '.jp',
+      base + '.JP',
+      base // sometimes Stooq returns bare code
+    ];
   }
-  return map;
+  // Default to US
+  return [s.toLowerCase() + '.us', s + '.US', s];
+}
+
+function buildStooqMap(symbols) {
+  const list = [];
+  const map = {}; // stooqSym(lower) -> original
+  for (const sym of symbols) {
+    const variants = stooqVariantsForSymbol(sym);
+    for (const v of variants) {
+      const key = String(v).toLowerCase();
+      if (!map[key]) {
+        map[key] = String(sym).toUpperCase();
+        list.push(v);
+      }
+    }
+  }
+  return { list, map };
 }
 
 function parseStooqCSV(text) {
@@ -122,18 +259,47 @@ function parseStooqCSV(text) {
 
 async function fetchStooq(symbols, debug = false) {
   if (!symbols.length) return {};
-  const m = mapToStooqSymbols(symbols);
-  const stooqSyms = Object.keys(m);
-  const url = 'https://stooq.com/q/l/?s=' + encodeURIComponent(stooqSyms.join(',')) + '&f=sd2t2ohlcv&h&e=csv';
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)' } });
-  if (!res.ok) throw new Error('Stooq HTTP ' + res.status);
-  const txt = await res.text();
-  const parsed = parseStooqCSV(txt);
+  const { list: stooqSyms, map: m } = buildStooqMap(symbols);
+  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'text/csv,*/*;q=0.1' };
+  const chunkSize = 30; // avoid too-long URLs
+  const toChunks = (arr, n) => arr.reduce((acc,_,i)=> (i%n? acc: acc.concat([arr.slice(i,i+n)])), []);
+  const chunks = toChunks(stooqSyms, chunkSize);
+
+  async function fetchFromHost(host) {
+    const parsedAll = {};
+    for (const ch of chunks) {
+      const urlHttps = `https://${host}/q/l/?s=` + encodeURIComponent(ch.join(',')) + '&f=sd2t2ohlcv&h&e=csv';
+      const urlHttp  = `http://${host}/q/l/?s=`  + encodeURIComponent(ch.join(',')) + '&f=sd2t2ohlcv&h&e=csv';
+      let ok = false;
+      for (const u of [urlHttps, urlHttp]) {
+        try {
+          const res = await fetch(u, { headers, redirect: 'follow' });
+          if (!res.ok) continue;
+          const txt = await res.text();
+          const p = parseStooqCSV(txt);
+          if (Object.keys(p).length) {
+            Object.assign(parsedAll, p);
+            ok = true;
+            break;
+          }
+        } catch (e) { /* try next url */ }
+      }
+      // continue even if both failed (next chunk)
+    }
+    return parsedAll;
+  }
+
+  // Try stooq.com, then stooq.pl
+  let parsedAll = await fetchFromHost('stooq.com');
+  if (!Object.keys(parsedAll).length) {
+    try { parsedAll = await fetchFromHost('stooq.pl'); } catch (e) {}
+  }
+
   const out = {};
-  for (const stooqSym of Object.keys(parsed)) {
+  for (const stooqSym of Object.keys(parsedAll)) {
     const orig = m[stooqSym];
     if (orig) {
-      out[orig] = { ...parsed[stooqSym], source: 'stooq' };
+      out[orig] = { ...parsedAll[stooqSym], source: 'stooq' };
     }
   }
   return out;
