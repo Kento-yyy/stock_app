@@ -69,4 +69,15 @@
 - アイコン: iOSのホームアイコンをカスタムしたい場合は `icons/apple-touch-icon.png` を用意し、`report.html` の `apple-touch-icon` リンク先に置いてください（未設定でも動作します）。
 - 自動更新: ページ表示時・復帰時にYahoo Financeの公開エンドポイントから最新株価（および `USDJPY=X`）を取得し、表の `USD_PRICE/JPY_PRICE/…_VALUE` を更新します。ネットワークやCORSで失敗した場合、右上の「更新」ボタンから再試行できます。
   - CORS対策: Yahooがブロックされた場合は自動で Stooq（`stooq.com`）にフォールバックします（USは `*.us`、東証は `.T`→`*.jp` で取得、為替は `usdjpy`）。一部銘柄は取得できない可能性があります。
+
+### CORSで失敗する場合の確実策（Cloudflare Workers 代理API）
+
+1. Cloudflareのアカウントを作成し、Workers（無料枠）で新規Workerを作成。
+2. `proxy/worker.js` の内容をCloudflare Workersに貼り付けてデプロイ。
+   - エンドポイントは例: `https://your-subdomain.workers.dev/quote`（GET, `?symbols=AAPL,8306.T,USDJPY=X`）
+3. `report.html` にクエリでAPIを指定してアクセス:
+   - 例: `https://<yourname>.github.io/<repo>/report.html?api=https://your-subdomain.workers.dev/quote`
+   - またはページ内で `localStorage.PF_API_BASE = 'https://your-subdomain.workers.dev/quote'` を一度設定。
+
+この代理APIはCORSヘッダを付け、Yahoo→Stooqの順に取得してJSONを返します。レスポンスは60秒程度キャッシュされます。
 # stock
