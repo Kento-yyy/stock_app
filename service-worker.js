@@ -24,6 +24,12 @@ self.addEventListener('activate', (event) => {
 // Stale-while-revalidate with offline fallback to cache
 self.addEventListener('fetch', (event) => {
   const req = event.request;
+  const url = new URL(req.url);
+  // Only cache same-origin; let cross-origin (e.g., Yahoo Finance) go to network
+  if (url.origin !== self.location.origin) {
+    event.respondWith(fetch(req).catch(() => caches.match(req)));
+    return;
+  }
   event.respondWith(
     caches.match(req).then((cached) => {
       const fetchPromise = fetch(req)
@@ -37,4 +43,3 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
-

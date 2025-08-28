@@ -67,4 +67,6 @@
   - 共有メニュー > 「ホーム画面に追加」。
 - オフライン: HTTPS配信時にservice workerが有効になり、`report.html` はオフラインでも開けます。追加でキャッシュしたいファイルがあれば `service-worker.js` の `PRECACHE_URLS` に追記してください。
 - アイコン: iOSのホームアイコンをカスタムしたい場合は `icons/apple-touch-icon.png` を用意し、`report.html` の `apple-touch-icon` リンク先に置いてください（未設定でも動作します）。
+- 自動更新: ページ表示時・復帰時にYahoo Financeの公開エンドポイントから最新株価（および `USDJPY=X`）を取得し、表の `USD_PRICE/JPY_PRICE/…_VALUE` を更新します。ネットワークやCORSで失敗した場合、右上の「更新」ボタンから再試行できます。
+  - CORS対策: Yahooがブロックされた場合は自動で Stooq（`stooq.com`）にフォールバックします（USは `*.us`、東証は `.T`→`*.jp` で取得、為替は `usdjpy`）。一部銘柄は取得できない可能性があります。
 # stock

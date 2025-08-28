@@ -129,10 +129,191 @@
       });
     })();
     </script>
+    <script>
+    (function(){
+      function nowStr(){
+        var d = new Date();
+        var pad = (n)=> String(n).padStart(2,'0');
+        return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+      }
+      function guessIsJPY(sym){ return /\.T$/i.test(sym || ''); }
+      function numberFromCell(td){ if(!td) return NaN; var dv=td.getAttribute('data-value'); if(dv!=null) return parseFloat(dv); var t=(td.textContent||'').replace(/,/g,''); var n=parseFloat(t); return isNaN(n)?NaN:n; }
+      function setNumCell(td, n, fmt, decimals){ if(!td) return; var val = (isFinite(n)? n : NaN); td.setAttribute('data-value', isFinite(val)? String(val): ''); if(!isFinite(val)){ td.textContent=''; return; } if(fmt==='JPY'){ td.textContent = Math.round(val).toLocaleString(); } else { td.textContent = val.toLocaleString(undefined,{minimumFractionDigits:decimals||2, maximumFractionDigits:decimals||2}); } }
+      function headerIndexMap(table){
+        var map = {};
+        if(!table || !table.tHead || !table.tHead.rows.length) return map;
+        var ths = table.tHead.rows[0].cells;
+        for (var i=0;i<ths.length;i++){
+          var txt = (ths[i].textContent||'').toUpperCase().replace(/[\s▲▼]/g,'');
+          map[txt] = i;
+        }
+        return map;
+      }
+      async function fetchYahoo(symbols){
+        if(!symbols || !symbols.length) return {};
+        var url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','));
+        var res = await fetch(url, {cache:'no-store'});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        var j = await res.json();
+        var arr = (j && j.quoteResponse && j.quoteResponse.result) || [];
+        var out = {};
+        arr.forEach(function(r){ if(r && r.symbol){ out[String(r.symbol).toUpperCase()] = r; } });
+        return out;
+      }
+      function mapToStooqSymbols(symbols){
+        var map = {}; // stooqSym -> originalSym
+        symbols.forEach(function(sym){
+          var s = String(sym).toUpperCase();
+          if (s === 'USDJPY=X') { map['usdjpy'] = s; return; }
+          if (/\.T$/.test(s)) { map[s.replace(/\.T$/,'').toLowerCase()+'.jp'] = s; return; }
+          // default to US
+          map[s.toLowerCase()+'.us'] = s;
+        });
+        return map; // keys are stooq symbols
+      }
+      function parseStooqCSV(text){
+        // Expect header like: Symbol,Date,Time,Open,High,Low,Close,Volume
+        var out = {};
+        if(!text) return out;
+        var lines = text.trim().split(/\r?\n/);
+        lines.shift();
+        lines.forEach(function(line){
+          if(!line) return;
+          var cols = line.split(',');
+          var sym = cols[0];
+          var close = parseFloat(cols[6]);
+          if (sym && isFinite(close)){
+            out[sym.toLowerCase()] = { regularMarketPrice: close };
+          }
+        });
+        return out;
+      }
+      async function fetchStooq(symbols){
+        if(!symbols || !symbols.length) return {};
+        var m = mapToStooqSymbols(symbols);
+        var stooqSyms = Object.keys(m);
+        var url = 'https://stooq.com/q/l/?s=' + encodeURIComponent(stooqSyms.join(',')) + '&f=sd2t2ohlcv&h&e=csv';
+        var res = await fetch(url, {cache:'no-store'});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        var txt = await res.text();
+        var parsed = parseStooqCSV(txt);
+        var out = {};
+        Object.keys(parsed).forEach(function(stooqSym){
+          var orig = m[stooqSym];
+          if (orig) out[orig] = parsed[stooqSym];
+        });
+        return out;
+      }
+      function updateTables(quotes){
+        var tables = document.querySelectorAll('table.pf-table');
+        var title = document.querySelector('#pf-title, body > h2');
+        if(title){ var t = (title.textContent||''); title.textContent = t.replace(/\(.*?\)/, '('+nowStr()+')'); }
+        var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+nowStr(); }
+        var usdJpy = quotes['USDJPY=X'] && quotes['USDJPY=X'].regularMarketPrice;
+        tables.forEach(function(table){
+          var idx = headerIndexMap(table);
+          var colSym = idx['SYMBOL'];
+          var colShares = idx['SHARES'];
+          var colUsdP = idx['USD_PRICE'];
+          var colUsdV = idx['USD_VALUE'];
+          var colJpyP = idx['JPY_PRICE'];
+          var colJpyV = idx['JPY_VALUE'];
+          if(colSym==null || colShares==null) return;
+          var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
+          var sumUsd = 0, sumJpy = 0;
+          rows.forEach(function(tr){
+            var sym = (tr.getAttribute('data-symbol') || (tr.cells[colSym] && tr.cells[colSym].getAttribute('data-value')) || (tr.cells[colSym] && tr.cells[colSym].textContent) || '').trim();
+            if(!sym) return;
+            var isJPY = guessIsJPY(sym);
+            var shares = numberFromCell(tr.cells[colShares]);
+            var q = quotes[sym.toUpperCase()];
+            var price = q ? q.regularMarketPrice : undefined;
+            if (isFinite(price)){
+              if(isJPY){
+                if(colJpyP!=null) setNumCell(tr.cells[colJpyP], price, 'JPY');
+                if(colJpyV!=null) setNumCell(tr.cells[colJpyV], shares*price, 'JPY');
+                if(colUsdP!=null && isFinite(usdJpy)) setNumCell(tr.cells[colUsdP], price/usdJpy, 'USD', 2);
+                if(colUsdV!=null && isFinite(usdJpy)) setNumCell(tr.cells[colUsdV], shares*(price/usdJpy), 'USD', 2);
+              } else {
+                if(colUsdP!=null) setNumCell(tr.cells[colUsdP], price, 'USD', 2);
+                if(colUsdV!=null) setNumCell(tr.cells[colUsdV], shares*price, 'USD', 2);
+                if(colJpyP!=null && isFinite(usdJpy)) setNumCell(tr.cells[colJpyP], price*usdJpy, 'JPY');
+                if(colJpyV!=null && isFinite(usdJpy)) setNumCell(tr.cells[colJpyV], shares*(price*usdJpy), 'JPY');
+              }
+            }
+            if(colUsdV!=null){ var v = numberFromCell(tr.cells[colUsdV]); if(isFinite(v)) sumUsd += v; }
+            if(colJpyV!=null){ var w = numberFromCell(tr.cells[colJpyV]); if(isFinite(w)) sumJpy += w; }
+          });
+          // update tfoot totals if present
+          if(table.tFoot && table.tFoot.rows.length){
+            var tds = table.tFoot.rows[0].cells;
+            if(colUsdV!=null && tds[colUsdV]) setNumCell(tds[colUsdV], sumUsd, 'USD', 2);
+            if(colJpyV!=null && tds[colJpyV]) setNumCell(tds[colJpyV], sumJpy, 'JPY');
+          }
+          // re-apply sort if a header has data-asc state
+          try{
+            var thead = table.tHead; if(thead && thead.rows.length){
+              var ths = thead.rows[0].cells;
+              for(var i=0;i<ths.length;i++){
+                var ascAttr = ths[i].getAttribute('data-asc');
+                if(ascAttr === 'true' || ascAttr === 'false'){
+                  var asc = (ascAttr === 'true');
+                  if (typeof sortTableEl === 'function') sortTableEl(table, i, asc);
+                  break; // apply first active sort
+                }
+              }
+            }
+          } catch(e){}
+        });
+      }
+      async function refresh(){
+        var btn = document.getElementById('pf-refresh-btn'); if(btn){ btn.disabled = true; btn.textContent='更新中…'; }
+        try{
+          var syms = [];
+          document.querySelectorAll('table.pf-table tbody tr[data-symbol]').forEach(function(tr){ var s=tr.getAttribute('data-symbol'); if(s) syms.push(s); });
+          syms = Array.from(new Set(syms.map(function(s){return s.toUpperCase();})));
+          if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
+          var quotes = {};
+          var hadYahooError = false;
+          try {
+            quotes = await fetchYahoo(syms);
+          } catch(e) {
+            hadYahooError = true;
+          }
+          // Fill missing (or all if Yahoo failed) from Stooq
+          var missing = syms.filter(function(s){ return !quotes[s]; });
+          if (hadYahooError || missing.length) {
+            try {
+              var q2 = await fetchStooq(syms);
+              Object.assign(quotes, q2);
+            } catch(e2) {}
+          }
+          if (Object.keys(quotes).length === 0) throw new Error('no data');
+          updateTables(quotes);
+        } catch(e) {
+          var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '更新失敗（ネットワーク/CORS）'; }
+        } finally {
+          if(btn){ btn.disabled = false; btn.textContent='更新'; }
+        }
+      }
+      function readyRefresh(){
+        var btn = document.getElementById('pf-refresh-btn'); if(btn){ btn.addEventListener('click', refresh); }
+        // auto refresh on load and when back online/visible
+        refresh();
+        window.addEventListener('online', refresh);
+        document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') refresh(); });
+      }
+      if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', readyRefresh); else readyRefresh();
+    })();
+    </script>
     
       </head>
       <body>
         <h2>ポートフォリオ評価額 (2025-08-28 20:11)  (USD/JPY 表示)</h2>
+        <div class='toolbar' id='pf-toolbar'>
+          <button id='pf-refresh-btn'>更新</button>
+          <span class='muted' id='pf-last-updated'></span>
+        </div>
         
         
         <h3>国内株</h3>
