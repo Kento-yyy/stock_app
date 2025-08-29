@@ -420,55 +420,115 @@ function pickBaselineAt(r, daysAgo) {
   return undefined;
 }
 
-async function fetchYahooBaselines(symbols) {
+// Batch baselines via Yahoo Spark API (multiple symbols per request)
+async function fetchYahooSparkBaselines(symbols) {
   const out = {};
-  const list = symbols.slice();
-  let idx = 0;
-  let workers = Math.min(3, list.length);
-  async function run(pass = 1) {
-    for (;;) {
-      const i = idx++; if (i >= list.length) break;
-      const s = list[i];
-      let r = await fetchYahooChart(s, '2y');
-      if (!r) r = await fetchYahooChart(s, '1y');
-      if (!r) r = await fetchYahooChart(s, '6mo');
+  if (!symbols.length) return out;
+  const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
+  const chunkSize = 40; // keep URL length reasonable
+  const toChunks = (arr, n) => arr.reduce((acc,_,i)=> (i%n? acc: acc.concat([arr.slice(i,i+n)])), []);
+  const chunks = toChunks(symbols, chunkSize);
+  function parseAndAcc(j) {
+    try{
+      const list = (j && j.spark && Array.isArray(j.spark.result)) ? j.spark.result
+                 : (Array.isArray(j && j.result) ? j.result : []);
+      for (const item of list) {
+        try{
+          const sym = String(item.symbol || item.ticker || item.id || (item.meta && item.meta.symbol) || '').toUpperCase();
+          const resp = (item.response && item.response[0]) || item;
+          const ts = resp && resp.timestamp;
+          const q = (resp && resp.indicators && resp.indicators.quote && resp.indicators.quote[0]) || {};
+          const closes = (q && q.close) || [];
+          if (!Array.isArray(ts) || !Array.isArray(closes) || !closes.length) continue;
+          // prev1d: second last finite close
+          let prev1d;
+          for (let k = closes.length - 1, cnt=0; k >= 0; k--) {
+            const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt === 2){ prev1d = c; break; }
+          }
+          const b30 = pickBaselineAt(resp, 30);
+          const b365 = pickBaselineAt(resp, 365);
+          if (!out[sym]) out[sym] = {};
+          if (Number.isFinite(prev1d) && out[sym].prevClose == null) out[sym].prevClose = prev1d;
+          if (Number.isFinite(b30) && out[sym].prevClose30d == null) out[sym].prevClose30d = b30;
+          if (Number.isFinite(b365) && out[sym].prevClose365d == null) out[sym].prevClose365d = b365;
+        }catch(_){ }
+      }
+    }catch(_){ }
+  }
+  for (const ch of chunks) {
+    const sy = encodeURIComponent(ch.join(','));
+    const urls = [
+      `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=2y&interval=1d`,
+      `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=2y&interval=1d`,
+      `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=2y&interval=1d`,
+      `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=2y&interval=1d`
+    ];
+    let ok = false;
+    for (const u of urls) {
+      try{
+        const res = await fetch(u, { headers: ua });
+        if (!res.ok) continue;
+        const j = await res.json();
+        parseAndAcc(j);
+        ok = true;
+        break;
+      }catch(_){ }
+    }
+    if (!ok) {
+      // Fallback to per-symbol chart for this chunk (kept minimal)
+      for (const s of ch) {
+        try{
+          const r = await fetchYahooChart(s);
+          if (!r) continue;
+          const sym = String(s).toUpperCase();
+          if (!out[sym]) out[sym] = {};
+          // prev1d
+          try{
+            const q = r.indicators && r.indicators.quote && r.indicators.quote[0];
+            const closes = (q && q.close) || [];
+            let prev1d;
+            for (let k = closes.length - 1, cnt=0; k >= 0; k--) { const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt===2){ prev1d = c; break; } }
+            if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
+          }catch(_){ }
+          const b30 = pickBaselineAt(r, 30);
+          const b365 = pickBaselineAt(r, 365);
+          if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
+          if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
+        }catch(_){ }
+      }
+    }
+  }
+  return out;
+}
+
+async function fetchYahooBaselines(symbols) {
+  // Try Spark first (few subrequests for many symbols)
+  const out = await fetchYahooSparkBaselines(symbols);
+  // Fallback per-symbol for any still-missing baselines, but cap to avoid subrequest limit (50)
+  const missing = symbols.filter(s => {
+    const v = out[String(s).toUpperCase()] || {};
+    return !(Number.isFinite(v.prevClose) && (Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose365d)));
+  });
+  const limit = 15; // safe cap for additional per-symbol chart fetches
+  for (let i=0;i<Math.min(limit, missing.length);i++){
+    const s = missing[i];
+    try{
+      const r = await fetchYahooChart(s);
       if (!r) continue;
-      // Determine previous trading day's close and baselines
+      const sym = String(s).toUpperCase();
+      if (!out[sym]) out[sym] = {};
       let prev1d;
-      try {
-        const q = (r.indicators && r.indicators.quote && r.indicators.quote[0]) || {};
-        const closes = (q.close || []).slice();
-        // scan from tail to find last two finite closes
-        let found = 0;
-        for (let j = closes.length - 1; j >= 0; j--) {
-          const c = closes[j];
-          if (!Number.isFinite(c)) continue;
-          found++;
-          if (found === 2) { prev1d = c; break; }
-        }
-      } catch (e) {}
+      try{
+        const q = r.indicators && r.indicators.quote && r.indicators.quote[0];
+        const closes = (q && q.close) || [];
+        for (let k = closes.length - 1, cnt=0; k >= 0; k--) { const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt===2){ prev1d = c; break; } }
+      }catch(_){ }
       const b30 = pickBaselineAt(r, 30);
       const b365 = pickBaselineAt(r, 365);
-      const sym = String(s).toUpperCase();
-      out[sym] = out[sym] || {};
       if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
       if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
       if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
-      if (pass > 1) await sleep(120);
-    }
-  }
-  await Promise.all(Array.from({length: workers}, () => run(1)));
-  // Retry pass for missing symbols with stricter pacing
-  const missing = list.filter(s => {
-    const sym = String(s).toUpperCase();
-    const v = out[sym] || {};
-    return !(Number.isFinite(v.prevClose) && (Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose365d)));
-  });
-  if (missing.length) {
-    idx = 0;
-    workers = 1;
-    list.splice(0, list.length, ...missing);
-    await Promise.all(Array.from({length: workers}, () => run(2)));
+    }catch(_){ }
   }
   return out;
 }
