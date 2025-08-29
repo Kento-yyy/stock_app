@@ -1,9 +1,8 @@
 
-    <html>
-      <head>
-        <meta charset='utf-8' />
-        
-    <style>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
       body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; }
       table { border-collapse: collapse; width: 100%; max-width: 100%; table-layout: fixed; }
       th, td { border: 1px solid #ddd; padding: 8px 10px; white-space: nowrap; }
@@ -26,9 +25,7 @@
       .table-wrap { overflow-x: auto; }
       .co { color:#444; font-size:12px; margin-left:6px; }
     </style>
-    
-        
-    <script>
+<script>
     (function(){
       
       function fmtUSD(n){ return (isNaN(n) ? '' : n.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})); }
@@ -130,7 +127,7 @@
       });
     })();
     </script>
-    <script>
+<script>
     (function(){
       
       function nowStr(){
@@ -483,13 +480,8 @@
             var cellJpyYoY = getCellByKey(tr,'JPY_YOY');
             var cellJpyMoM = getCellByKey(tr,'JPY_MOM');
             var cellJpyDoD = getCellByKey(tr,'JPY_DOD');
-            if (isFinite(priceUsd)){
-              if(cellUsdP) setNumCell(cellUsdP, priceUsd, 'USD', 2);
-              if(cellUsdV) setNumCell(cellUsdV, shares*priceUsd, 'USD', 2);
-            }
-            if (isFinite(priceJpy)){
-              if(cellJpyP) setNumCell(cellJpyP, priceJpy, 'JPY');
-              if(cellJpyV) setNumCell(cellJpyV, shares*priceJpy, 'JPY');
+            if (isFinite(priceUsd) || isFinite(priceJpy)) {
+              console.log('Price for ' + sym + ': USD=' + priceUsd + ', JPY=' + priceJpy);
             }
             // Percent changes (prefer API-provided; fallback to local computation)
             // USD block
@@ -539,9 +531,6 @@
                   if (!isFinite(usdYoY) && isFinite(cq.usdYoY)) usdYoY = cq.usdYoY;
                 }catch(_){ }
               }
-              if (cellUsdDoD) setPctCell(cellUsdDoD, (isFinite(usdDoD) ? usdDoD : NaN));
-              if (cellUsdMoM) setPctCell(cellUsdMoM, (isFinite(usdMoM) ? usdMoM : NaN));
-              if (cellUsdYoY) setPctCell(cellUsdYoY, (isFinite(usdYoY) ? usdYoY : NaN));
             }
             // JPY block
             if (isFinite(priceJpy)){
@@ -571,9 +560,6 @@
                   if (!isFinite(jpyYoY) && isFinite(cq2.jpyYoY)) jpyYoY = cq2.jpyYoY;
                 }catch(_){ }
               }
-              if (cellJpyDoD) setPctCell(cellJpyDoD, (isFinite(jpyDoD) ? jpyDoD : NaN));
-              if (cellJpyMoM) setPctCell(cellJpyMoM, (isFinite(jpyMoM) ? jpyMoM : NaN));
-              if (cellJpyYoY) setPctCell(cellJpyYoY, (isFinite(jpyYoY) ? jpyYoY : NaN));
             }
             if(cellUsdV){ var v = numberFromCell(cellUsdV); if(isFinite(v)) sumUsd += v; }
             if(cellJpyV){ var w = numberFromCell(cellJpyV); if(isFinite(w)) sumJpy += w; }
@@ -583,8 +569,6 @@
             var tfr = table.tFoot.rows[0];
             var tfUsd = (tfr && (tfr.querySelector('td[data-col="USD_VALUE"]') || tfr.cells[colUsdV])) || null;
             var tfJpy = (tfr && (tfr.querySelector('td[data-col="JPY_VALUE"]') || tfr.cells[colJpyV])) || null;
-            if(tfUsd) setNumCell(tfUsd, sumUsd, 'USD', 2);
-            if(tfJpy) setNumCell(tfJpy, sumJpy, 'JPY');
           }
           // accumulate global totals (skip tables without rows)
           if (rows && rows.length) {
@@ -616,8 +600,6 @@
             var idx2 = headerIndexMap(tot);
             if (!tfUsd2 && idx2['USD_VALUE']!=null) tfUsd2 = tfr2.cells[idx2['USD_VALUE']];
             if (!tfJpy2 && idx2['JPY_VALUE']!=null) tfJpy2 = tfr2.cells[idx2['JPY_VALUE']];
-            if (tfUsd2) setNumCell(tfUsd2, totalUsdAll, 'USD', 2);
-            if (tfJpy2) setNumCell(tfJpy2, totalJpyAll, 'JPY');
           }
         } catch(e){}
       }
@@ -705,99 +687,95 @@
       if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', readyRefresh); else readyRefresh();
     })();
     </script>
-    
-      </head>
-      <body>
-        <h2>ポートフォリオ評価額 (2025-08-28 20:11)  (USD/JPY 表示)</h2>
-        <div class='toolbar' id='pf-toolbar'>
-          <button id='pf-refresh-btn'>更新</button>
-          <span class='muted' id='pf-last-updated'></span>
-        </div>
-        
-        
-        <h3>国内株</h3>
-        <div class='table-wrap'>
-        <table id='pf-table-jpy' class='pf-table'>
-          <colgroup><col style='width:22%'/><col style='width:6%'/><col style='width:6%'/><col style='width:8%'/><col style='width:5%'/><col style='width:5%'/><col style='width:5%'/><col style='width:10%'/><col style='width:8%'/><col style='width:5%'/><col style='width:5%'/><col style='width:5%'/><col style='width:10%'/></colgroup>
-          <thead>
-            <tr>
-              <th style='text-align:left'>SYMBOL<span class='sort-indicator'></span></th>
-              <th>SHARES<span class='sort-indicator'></span></th>
-              <th>PER<span class='sort-indicator'></span></th>
-              <th>USD_PRICE<span class='sort-indicator'></span></th>
-              <th>YoY<span class='sort-indicator'></span></th>
-              <th>MoM<span class='sort-indicator'></span></th>
-              <th>DoD<span class='sort-indicator'></span></th>
-              <th>USD_VALUE<span class='sort-indicator'></span></th>
-              <th>JPY_PRICE<span class='sort-indicator'></span></th>
-              <th>YoY<span class='sort-indicator'></span></th>
-              <th>MoM<span class='sort-indicator'></span></th>
-              <th>DoD<span class='sort-indicator'></span></th>
-              <th>JPY_VALUE<span class='sort-indicator'></span></th>
-            </tr>
-          </thead>
-          <tbody><tr data-symbol='8306.T'><td style='text-align:left' data-value='8306.T'>8306.T <span class='co'>MITSUBISHI UFJ FINANCIAL GROUP </span></td><td data-value='500.000000'>500</td><td data-value='14.217192'>14.2</td><td data-value='15.429474'>15.43</td><td data-value='0.528491'><span class='chg'><span class='up'>+52.8%</span></span></td><td data-value='0.090964'><span class='chg'><span class='up'>+9.1%</span></span></td><td data-value='0.009251'><span class='chg'><span class='up'>+0.9%</span></span></td><td data-value='7714.736783'>7,714.74</td><td data-value='2267.500000'>2,268</td><td data-value='0.536952'><span class='chg'><span class='up'>+53.7%</span></span></td><td data-value='0.074390'><span class='chg'><span class='up'>+7.4%</span></span></td><td data-value='0.007106'><span class='chg'><span class='up'>+0.7%</span></span></td><td data-value='1133750.000000'>1,133,750</td></tr><tr data-symbol='9201.T'><td style='text-align:left' data-value='9201.T'>9201.T <span class='co'>JAPAN AIRLINES CO LTD</span></td><td data-value='300.000000'>300</td><td data-value='12.892953'>12.9</td><td data-value='21.488987'>21.49</td><td data-value='0.322201'><span class='chg'><span class='up'>+32.2%</span></span></td><td data-value='0.065708'><span class='chg'><span class='up'>+6.6%</span></span></td><td data-value='-0.006053'><span class='chg'><span class='down'>-0.6%</span></span></td><td data-value='6446.696033'>6,446.70</td><td data-value='3158.000000'>3,158</td><td data-value='0.329520'><span class='chg'><span class='up'>+33.0%</span></span></td><td data-value='0.049518'><span class='chg'><span class='up'>+5.0%</span></span></td><td data-value='-0.008166'><span class='chg'><span class='down'>-0.8%</span></span></td><td data-value='947400.000000'>947,400</td></tr><tr data-symbol='8985.T'><td style='text-align:left' data-value='8985.T'>8985.T <span class='co'>JAPAN HOTEL REIT INVESTMENT COR</span></td><td data-value='11.000000'>11</td><td data-value='19.142770'>19.1</td><td data-value='583.836310'>583.84</td><td data-value='0.205399'><span class='chg'><span class='up'>+20.5%</span></span></td><td data-value='0.050948'><span class='chg'><span class='up'>+5.1%</span></span></td><td data-value='0.003299'><span class='chg'><span class='up'>+0.3%</span></span></td><td data-value='6422.199405'>6,422.20</td><td data-value='85800.000000'>85,800</td><td data-value='0.212071'><span class='chg'><span class='up'>+21.2%</span></span></td><td data-value='0.034982'><span class='chg'><span class='up'>+3.5%</span></span></td><td data-value='0.001167'><span class='chg'><span class='up'>+0.1%</span></span></td><td data-value='943800.000000'>943,800</td></tr><tr data-symbol='7203.T'><td style='text-align:left' data-value='7203.T'>7203.T <span class='co'>TOYOTA MOTOR CORP</span></td><td data-value='300.000000'>300</td><td data-value='8.981262'>9.0</td><td data-value='19.862683'>19.86</td><td data-value='0.086853'><span class='chg'><span class='up'>+8.7%</span></span></td><td data-value='0.099213'><span class='chg'><span class='up'>+9.9%</span></span></td><td data-value='0.008174'><span class='chg'><span class='up'>+0.8%</span></span></td><td data-value='5958.804852'>5,958.80</td><td data-value='2919.000000'>2,919</td><td data-value='0.092869'><span class='chg'><span class='up'>+9.3%</span></span></td><td data-value='0.082514'><span class='chg'><span class='up'>+8.3%</span></span></td><td data-value='0.006031'><span class='chg'><span class='up'>+0.6%</span></span></td><td data-value='875700.000000'>875,700</td></tr><tr data-symbol='8963.T'><td style='text-align:left' data-value='8963.T'>8963.T <span class='co'>INVINCIBLE INVESTMENT CORP</span></td><td data-value='10.000000'>10</td><td data-value='17.207018'>17.2</td><td data-value='455.909472'>455.91</td><td data-value='0.095110'><span class='chg'><span class='up'>+9.5%</span></span></td><td data-value='0.012404'><span class='chg'><span class='up'>+1.2%</span></span></td><td data-value='-0.005293'><span class='chg'><span class='down'>-0.5%</span></span></td><td data-value='4559.094725'>4,559.09</td><td data-value='67000.000000'>67,000</td><td data-value='0.101172'><span class='chg'><span class='up'>+10.1%</span></span></td><td data-value='-0.002976'><span class='chg'><span class='down'>-0.3%</span></span></td><td data-value='-0.007407'><span class='chg'><span class='down'>-0.7%</span></span></td><td data-value='670000.000000'>670,000</td></tr><tr data-symbol='9202.T'><td style='text-align:left' data-value='9202.T'>9202.T <span class='co'>ANA HOLDINGS INC</span></td><td data-value='200.000000'>200</td><td data-value='10.266198'>10.3</td><td data-value='20.311788'>20.31</td><td data-value='0.029105'><span class='chg'><span class='up'>+2.9%</span></span></td><td data-value='0.079433'><span class='chg'><span class='up'>+7.9%</span></span></td><td data-value='0.004485'><span class='chg'><span class='up'>+0.4%</span></span></td><td data-value='4062.357538'>4,062.36</td><td data-value='2985.000000'>2,985</td><td data-value='0.034802'><span class='chg'><span class='up'>+3.5%</span></span></td><td data-value='0.063034'><span class='chg'><span class='up'>+6.3%</span></span></td><td data-value='0.002351'><span class='chg'><span class='up'>+0.2%</span></span></td><td data-value='597000.000000'>597,000</td></tr><tr data-symbol='9432.T'><td style='text-align:left' data-value='9432.T'>9432.T <span class='co'>NTT INC</span></td><td data-value='2800.000000'>2,800</td><td data-value='13.152174'>13.2</td><td data-value='1.070367'>1.07</td><td data-value='0.040314'><span class='chg'><span class='up'>+4.0%</span></span></td><td data-value='0.046015'><span class='chg'><span class='up'>+4.6%</span></span></td><td data-value='-0.002941'><span class='chg'><span class='down'>-0.3%</span></span></td><td data-value='2997.026447'>2,997.03</td><td data-value='157.300003'>157</td><td data-value='0.046073'><span class='chg'><span class='up'>+4.6%</span></span></td><td data-value='0.030124'><span class='chg'><span class='up'>+3.0%</span></span></td><td data-value='-0.005060'><span class='chg'><span class='down'>-0.5%</span></span></td><td data-value='440440.008545'>440,440</td></tr><tr data-symbol='8316.T'><td style='text-align:left' data-value='8316.T'>8316.T <span class='co'>SUMITOMO MITSUI FINANCIAL GROUP</span></td><td data-value='100.000000'>100</td><td data-value='13.337930'>13.3</td><td data-value='27.647167'>27.65</td><td data-value='0.314750'><span class='chg'><span class='up'>+31.5%</span></span></td><td data-value='0.070214'><span class='chg'><span class='up'>+7.0%</span></span></td><td data-value='-0.001556'><span class='chg'><span class='down'>-0.2%</span></span></td><td data-value='2764.716697'>2,764.72</td><td data-value='4063.000000'>4,063</td><td data-value='0.322028'><span class='chg'><span class='up'>+32.2%</span></span></td><td data-value='0.053956'><span class='chg'><span class='up'>+5.4%</span></span></td><td data-value='-0.003678'><span class='chg'><span class='down'>-0.4%</span></span></td><td data-value='406300.000000'>406,300</td></tr><tr data-symbol='8591.T'><td style='text-align:left' data-value='8591.T'>8591.T <span class='co'>ORIX CORPORATION</span></td><td data-value='100.000000'>100</td><td data-value='11.740023'>11.7</td><td data-value='26.082105'>26.08</td><td data-value='0.084255'><span class='chg'><span class='up'>+8.4%</span></span></td><td data-value='0.144744'><span class='chg'><span class='up'>+14.5%</span></span></td><td data-value='0.010301'><span class='chg'><span class='up'>+1.0%</span></span></td><td data-value='2608.210460'>2,608.21</td><td data-value='3833.000000'>3,833</td><td data-value='0.090257'><span class='chg'><span class='up'>+9.0%</span></span></td><td data-value='0.127353'><span class='chg'><span class='up'>+12.7%</span></span></td><td data-value='0.008154'><span class='chg'><span class='up'>+0.8%</span></span></td><td data-value='383300.000000'>383,300</td></tr><tr data-symbol='3048.T'><td style='text-align:left' data-value='3048.T'>3048.T <span class='co'>BIC CAMERA INC.</span></td><td data-value='100.000000'>100</td><td data-value='15.087605'>15.1</td><td data-value='11.074517'>11.07</td><td data-value='0.009996'><span class='chg'><span class='up'>+1.0%</span></span></td><td data-value='0.057279'><span class='chg'><span class='up'>+5.7%</span></span></td><td data-value='0.002130'><span class='chg'><span class='up'>+0.2%</span></span></td><td data-value='1107.451741'>1,107.45</td><td data-value='1627.500000'>1,628</td><td data-value='0.015586'><span class='chg'><span class='up'>+1.6%</span></span></td><td data-value='0.041217'><span class='chg'><span class='up'>+4.1%</span></span></td><td data-value='0.000000'><span class='chg'><span class=''>0.0%</span></span></td><td data-value='162750.000000'>162,750</td></tr><tr data-symbol='7513.T'><td style='text-align:left' data-value='7513.T'>7513.T <span class='co'>KOJIMA CO LTD</span></td><td data-value='100.000000'>100</td><td data-value='18.754974'>18.8</td><td data-value='8.015841'>8.02</td><td data-value='0.210824'><span class='chg'><span class='up'>+21.1%</span></span></td><td data-value='0.007514'><span class='chg'><span class='up'>+0.8%</span></span></td><td data-value='-0.034743'><span class='chg'><span class='down'>-3.5%</span></span></td><td data-value='801.584117'>801.58</td><td data-value='1178.000000'>1,178</td><td data-value='0.217527'><span class='chg'><span class='up'>+21.8%</span></span></td><td data-value='-0.007791'><span class='chg'><span class='down'>-0.8%</span></span></td><td data-value='-0.036795'><span class='chg'><span class='down'>-3.7%</span></span></td><td data-value='117800.000000'>117,800</td></tr><tr data-symbol='6526.T'><td style='text-align:left' data-value='6526.T'>6526.T <span class='co'>SOCIONEXT INC</span></td><td data-value='0.000000'>0</td><td data-value='26.591932'>26.6</td><td data-value='19.692567'>19.69</td><td data-value='-0.091097'><span class='chg'><span class='down'>-9.1%</span></span></td><td data-value='0.011581'><span class='chg'><span class='up'>+1.2%</span></span></td><td data-value='0.025880'><span class='chg'><span class='up'>+2.6%</span></span></td><td data-value='0.000000'>0.00</td><td data-value='2894.000000'>2,894</td><td data-value='-0.086066'><span class='chg'><span class='down'>-8.6%</span></span></td><td data-value='-0.003787'><span class='chg'><span class='down'>-0.4%</span></span></td><td data-value='0.023700'><span class='chg'><span class='up'>+2.4%</span></span></td><td data-value='0.000000'>0</td></tr><tr data-symbol='7269.T'><td style='text-align:left' data-value='7269.T'>7269.T <span class='co'>SUZUKI MOTOR CORP</span></td><td data-value='0.000000'>0</td><td data-value='9.109884'>9.1</td><td data-value='13.364272'>13.36</td><td data-value='0.180459'><span class='chg'><span class='up'>+18.0%</span></span></td><td data-value='0.196698'><span class='chg'><span class='up'>+19.7%</span></span></td><td data-value='0.015312'><span class='chg'><span class='up'>+1.5%</span></span></td><td data-value='0.000000'>0.00</td><td data-value='1964.000000'>1,964</td><td data-value='0.186993'><span class='chg'><span class='up'>+18.7%</span></span></td><td data-value='0.178518'><span class='chg'><span class='up'>+17.9%</span></span></td><td data-value='0.013155'><span class='chg'><span class='up'>+1.3%</span></span></td><td data-value='0.000000'>0</td></tr></tbody>
-          <tfoot>
-            <tr><td style='text-align:left'>TOTAL</td><td></td><td></td><td></td><td></td><td></td><td></td><td>45,442.88</td><td></td><td></td><td></td><td></td><td>6,678,240</td></tr>
-          </tfoot>
-        </table>
-        </div>
-        <h3>米国株</h3>
-        <div class='table-wrap'>
-        <table id='pf-table-usd' class='pf-table'>
-          <colgroup><col style='width:22%'/><col style='width:6%'/><col style='width:6%'/><col style='width:8%'/><col style='width:5%'/><col style='width:5%'/><col style='width:5%'/><col style='width:10%'/><col style='width:8%'/><col style='width:5%'/><col style='width:5%'/><col style='width:5%'/><col style='width:10%'/></colgroup>
-          <thead>
-            <tr>
-              <th style='text-align:left'>SYMBOL<span class='sort-indicator'></span></th>
-              <th>SHARES<span class='sort-indicator'></span></th>
-              <th>PER<span class='sort-indicator'></span></th>
-              <th>USD_PRICE<span class='sort-indicator'></span></th>
-              <th>YoY<span class='sort-indicator'></span></th>
-              <th>MoM<span class='sort-indicator'></span></th>
-              <th>DoD<span class='sort-indicator'></span></th>
-              <th>USD_VALUE<span class='sort-indicator'></span></th>
-              <th>JPY_PRICE<span class='sort-indicator'></span></th>
-              <th>YoY<span class='sort-indicator'></span></th>
-              <th>MoM<span class='sort-indicator'></span></th>
-              <th>DoD<span class='sort-indicator'></span></th>
-              <th>JPY_VALUE<span class='sort-indicator'></span></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr data-symbol='TSM'><td style='text-align:left' data-value='TSM'>TSM <span class='co'>Taiwan Semiconductor Manufactur</span></td><td data-value='28.000000'>28</td><td data-value='26.180523'>26.2</td><td data-value='239.289993'>239.29</td><td data-value='0.413856'><span class='chg'><span class='up'>+41.4%</span></span></td><td data-value='-0.009643'><span class='chg'><span class='down'>-1.0%</span></span></td><td data-value='0.016093'><span class='chg'><span class='up'>+1.6%</span></span></td><td data-value='6700.119812'>6,700.12</td><td data-value='35165.818036'>35,166</td><td data-value='0.421682'><span class='chg'><span class='up'>+42.2%</span></span></td><td data-value='-0.024688'><span class='chg'><span class='down'>-2.5%</span></span></td><td data-value='0.013934'><span class='chg'><span class='up'>+1.4%</span></span></td><td data-value='984642.905000'>984,643</td></tr><tr data-symbol='NVDA'><td style='text-align:left' data-value='NVDA'>NVDA <span class='co'>NVIDIA Corporation</span></td><td data-value='28.000000'>28</td><td data-value='58.392290'>58.4</td><td data-value='181.600006'>181.60</td><td data-value='0.521801'><span class='chg'><span class='up'>+52.2%</span></span></td><td data-value='0.020970'><span class='chg'><span class='up'>+2.1%</span></span></td><td data-value='0.031994'><span class='chg'><span class='up'>+3.2%</span></span></td><td data-value='5084.800171'>5,084.80</td><td data-value='26687.755230'>26,688</td><td data-value='0.530225'><span class='chg'><span class='up'>+53.0%</span></span></td><td data-value='0.005460'><span class='chg'><span class='up'>+0.5%</span></span></td><td data-value='0.029801'><span class='chg'><span class='up'>+3.0%</span></span></td><td data-value='747257.146453'>747,257</td></tr><tr data-symbol='AVGO'><td style='text-align:left' data-value='AVGO'>AVGO <span class='co'>Broadcom Inc.</span></td><td data-value='13.000000'>13</td><td data-value='109.981680'>110.0</td><td data-value='300.250000'>300.25</td><td data-value='0.865076'><span class='chg'><span class='up'>+86.5%</span></span></td><td data-value='0.022302'><span class='chg'><span class='up'>+2.2%</span></span></td><td data-value='0.012648'><span class='chg'><span class='up'>+1.3%</span></span></td><td data-value='3903.250000'>3,903.25</td><td data-value='44124.439640'>44,124</td><td data-value='0.875400'><span class='chg'><span class='up'>+87.5%</span></span></td><td data-value='0.006771'><span class='chg'><span class='up'>+0.7%</span></span></td><td data-value='0.010495'><span class='chg'><span class='up'>+1.0%</span></span></td><td data-value='573617.715321'>573,618</td></tr><tr data-symbol='AMD'><td style='text-align:left' data-value='AMD'>AMD <span class='co'>Advanced Micro Devices, Inc.</span></td><td data-value='22.000000'>22</td><td data-value='100.077850'>100.1</td><td data-value='167.130005'>167.13</td><td data-value='0.125000'><span class='chg'><span class='up'>+12.5%</span></span></td><td data-value='-0.052067'><span class='chg'><span class='down'>-5.2%</span></span></td><td data-value='0.015062'><span class='chg'><span class='up'>+1.5%</span></span></td><td data-value='3676.860107'>3,676.86</td><td data-value='24561.258326'>24,561</td><td data-value='0.131227'><span class='chg'><span class='up'>+13.1%</span></span></td><td data-value='-0.066468'><span class='chg'><span class='down'>-6.6%</span></span></td><td data-value='0.012905'><span class='chg'><span class='up'>+1.3%</span></span></td><td data-value='540347.683180'>540,348</td></tr><tr data-symbol='MRVL'><td style='text-align:left' data-value='MRVL'>MRVL <span class='co'>Marvell Technology, Inc.</span></td><td data-value='33.000000'>33</td><td data-value='29.916000'>29.9</td><td data-value='74.790001'>74.79</td><td data-value='-0.015787'><span class='chg'><span class='down'>-1.6%</span></span></td><td data-value='-0.068667'><span class='chg'><span class='down'>-6.9%</span></span></td><td data-value='0.008087'><span class='chg'><span class='up'>+0.8%</span></span></td><td data-value='2468.070030'>2,468.07</td><td data-value='10991.063717'>10,991</td><td data-value='-0.010339'><span class='chg'><span class='down'>-1.0%</span></span></td><td data-value='-0.082816'><span class='chg'><span class='down'>-8.3%</span></span></td><td data-value='0.005945'><span class='chg'><span class='up'>+0.6%</span></span></td><td data-value='362705.102666'>362,705</td></tr><tr data-symbol='QCOM'><td style='text-align:left' data-value='QCOM'>QCOM <span class='co'>QUALCOMM Incorporated</span></td><td data-value='15.000000'>15</td><td data-value='15.436715'>15.4</td><td data-value='159.770004'>159.77</td><td data-value='-0.068561'><span class='chg'><span class='down'>-6.9%</span></span></td><td data-value='0.088648'><span class='chg'><span class='up'>+8.9%</span></span></td><td data-value='0.001695'><span class='chg'><span class='up'>+0.2%</span></span></td><td data-value='2396.550064'>2,396.55</td><td data-value='23479.639999'>23,480</td><td data-value='-0.063405'><span class='chg'><span class='down'>-6.3%</span></span></td><td data-value='0.072110'><span class='chg'><span class='up'>+7.2%</span></span></td><td data-value='-0.000434'><span class='chg'><span class='down'>-0.0%</span></span></td><td data-value='352194.599991'>352,195</td></tr><tr data-symbol='ARM'><td style='text-align:left' data-value='ARM'>ARM <span class='co'>Arm Holdings plc</span></td><td data-value='14.000000'>14</td><td data-value='213.121220'>213.1</td><td data-value='140.660004'>140.66</td><td data-value='0.058549'><span class='chg'><span class='up'>+5.9%</span></span></td><td data-value='-0.005057'><span class='chg'><span class='down'>-0.5%</span></span></td><td data-value='0.016341'><span class='chg'><span class='up'>+1.6%</span></span></td><td data-value='1969.240051'>1,969.24</td><td data-value='20671.253427'>20,671</td><td data-value='0.064409'><span class='chg'><span class='up'>+6.4%</span></span></td><td data-value='-0.020172'><span class='chg'><span class='down'>-2.0%</span></span></td><td data-value='0.014181'><span class='chg'><span class='up'>+1.4%</span></span></td><td data-value='289397.547973'>289,398</td></tr><tr data-symbol='MCD'><td style='text-align:left' data-value='MCD'>MCD <span class='co'>McDonald's Corporation</span></td><td data-value='5.000000'>5</td><td data-value='26.663527'>26.7</td><td data-value='311.429993'>311.43</td><td data-value='0.104218'><span class='chg'><span class='up'>+10.4%</span></span></td><td data-value='0.037858'><span class='chg'><span class='up'>+3.8%</span></span></td><td data-value='-0.001763'><span class='chg'><span class='down'>-0.2%</span></span></td><td data-value='1557.149963'>1,557.15</td><td data-value='45767.440180'>45,767</td><td data-value='0.110330'><span class='chg'><span class='up'>+11.0%</span></span></td><td data-value='0.022091'><span class='chg'><span class='up'>+2.2%</span></span></td><td data-value='-0.003885'><span class='chg'><span class='down'>-0.4%</span></span></td><td data-value='228837.200898'>228,837</td></tr><tr data-symbol='CDNS'><td style='text-align:left' data-value='CDNS'>CDNS <span class='co'>Cadence Design Systems, Inc.</span></td><td data-value='4.000000'>4</td><td data-value='93.498650'>93.5</td><td data-value='346.880005'>346.88</td><td data-value='0.289852'><span class='chg'><span class='up'>+29.0%</span></span></td><td data-value='-0.048523'><span class='chg'><span class='down'>-4.9%</span></span></td><td data-value='-0.008603'><span class='chg'><span class='down'>-0.9%</span></span></td><td data-value='1387.520020'>1,387.52</td><td data-value='50977.138511'>50,977</td><td data-value='0.296992'><span class='chg'><span class='up'>+29.7%</span></span></td><td data-value='-0.062977'><span class='chg'><span class='down'>-6.3%</span></span></td><td data-value='-0.010710'><span class='chg'><span class='down'>-1.1%</span></span></td><td data-value='203908.554042'>203,909</td></tr><tr data-symbol='SBUX'><td style='text-align:left' data-value='SBUX'>SBUX <span class='co'>Starbucks Corporation</span></td><td data-value='15.000000'>15</td><td data-value='37.948055'>37.9</td><td data-value='87.660004'>87.66</td><td data-value='-0.043695'><span class='chg'><span class='down'>-4.4%</span></span></td><td data-value='-0.010337'><span class='chg'><span class='down'>-1.0%</span></span></td><td data-value='-0.001128'><span class='chg'><span class='down'>-0.1%</span></span></td><td data-value='1314.900055'>1,314.90</td><td data-value='12882.426446'>12,882</td><td data-value='-0.038401'><span class='chg'><span class='down'>-3.8%</span></span></td><td data-value='-0.025371'><span class='chg'><span class='down'>-2.5%</span></span></td><td data-value='-0.003251'><span class='chg'><span class='down'>-0.3%</span></span></td><td data-value='193236.396691'>193,236</td></tr><tr data-symbol='SNPS'><td style='text-align:left' data-value='SNPS'>SNPS <span class='co'>Synopsys, Inc.</span></td><td data-value='2.000000'>2</td><td data-value='69.892235'>69.9</td><td data-value='603.169983'>603.17</td><td data-value='0.160880'><span class='chg'><span class='up'>+16.1%</span></span></td><td data-value='-0.047832'><span class='chg'><span class='down'>-4.8%</span></span></td><td data-value='0.002010'><span class='chg'><span class='up'>+0.2%</span></span></td><td data-value='1206.339966'>1,206.34</td><td data-value='88641.257298'>88,641</td><td data-value='0.167306'><span class='chg'><span class='up'>+16.7%</span></span></td><td data-value='-0.062297'><span class='chg'><span class='down'>-6.2%</span></span></td><td data-value='-0.000120'><span class='chg'><span class='down'>-0.0%</span></span></td><td data-value='177282.514595'>177,283</td></tr><tr data-symbol='INTC'><td style='text-align:left' data-value='INTC'>INTC <span class='co'>Intel Corporation</span></td><td data-value='0.000000'>0</td><td data-value='25.618557'>25.6</td><td data-value='24.850000'>24.85</td><td data-value='0.134648'><span class='chg'><span class='up'>+13.5%</span></span></td><td data-value='0.255051'><span class='chg'><span class='up'>+25.5%</span></span></td><td data-value='0.003838'><span class='chg'><span class='up'>+0.4%</span></span></td><td data-value='0.000000'>0.00</td><td data-value='3651.931197'>3,652</td><td data-value='0.140929'><span class='chg'><span class='up'>+14.1%</span></span></td><td data-value='0.235984'><span class='chg'><span class='up'>+23.6%</span></span></td><td data-value='0.001704'><span class='chg'><span class='up'>+0.2%</span></span></td><td data-value='0.000000'>0</td></tr>
-          </tbody>
-          <tfoot>
-            <tr><td style='text-align:left'>TOTAL</td><td></td><td></td><td></td><td></td><td></td><td></td><td>31,664.80</td><td></td><td></td><td></td><td></td><td>4,653,427</td></tr>
-          </tfoot>
-        </table>
-        </div>
-        <h3>全体合計</h3>
-        <div class='table-wrap'>
-        <table id='pf-total' class='pf-table pf-total'>
-          <colgroup><col style='width:22%'/><col style='width:6%'/><col style='width:6%'/><col style='width:8%'/><col style='width:5%'/><col style='width:5%'/><col style='width:5%'/><col style='width:10%'/><col style='width:8%'/><col style='width:5%'/><col style='width:5%'/><col style='width:5%'/><col style='width:10%'/></colgroup>
-          <thead>
-            <tr>
-              <th style='text-align:left'>TYPE<span class='sort-indicator'></span></th>
-              <th>SHARES<span class='sort-indicator'></span></th>
-              <th>PER<span class='sort-indicator'></span></th>
-              <th>USD_PRICE<span class='sort-indicator'></span></th>
-              <th>YoY<span class='sort-indicator'></span></th>
-              <th>MoM<span class='sort-indicator'></span></th>
-              <th>DoD<span class='sort-indicator'></span></th>
-              <th>USD_VALUE<span class='sort-indicator'></span></th>
-              <th>JPY_PRICE<span class='sort-indicator'></span></th>
-              <th>YoY<span class='sort-indicator'></span></th>
-              <th>MoM<span class='sort-indicator'></span></th>
-              <th>DoD<span class='sort-indicator'></span></th>
-              <th>JPY_VALUE<span class='sort-indicator'></span></th>
-            </tr>
-          </thead>
-          <tfoot>
-            <tr><td style='text-align:left'>OVERALL TOTAL</td><td></td><td></td><td></td><td></td><td></td><td></td><td>77,107.68</td><td></td><td></td><td></td><td></td><td>11,331,667</td></tr>
-          </tfoot>
-        </table>
-        </div>
-        <p id='fx-rate' class='muted'>為替: USD→JPY = 146.9590</p>
-      </body>
-    </html>
-    
+</head>
+<body>
+<h2>ポートフォリオ評価額 (2025-08-28 20:11)  (USD/JPY 表示)</h2>
+<div class="toolbar" id="pf-toolbar">
+<button id="pf-refresh-btn">更新</button>
+<span class="muted" id="pf-last-updated"></span>
+</div>
+<h3>国内株</h3>
+<div class="table-wrap">
+<table class="pf-table" id="pf-table-jpy">
+<colgroup><col style="width:22%"/><col style="width:6%"/><col style="width:6%"/><col style="width:8%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:10%"/><col style="width:8%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:10%"/></colgroup>
+<thead>
+<tr>
+<th style="text-align:left">SYMBOL<span class="sort-indicator"></span></th>
+<th>SHARES<span class="sort-indicator"></span></th>
+<th>PER<span class="sort-indicator"></span></th>
+<th>USD_PRICE<span class="sort-indicator"></span></th>
+<th>YoY<span class="sort-indicator"></span></th>
+<th>MoM<span class="sort-indicator"></span></th>
+<th>DoD<span class="sort-indicator"></span></th>
+<th>USD_VALUE<span class="sort-indicator"></span></th>
+<th>JPY_PRICE<span class="sort-indicator"></span></th>
+<th>YoY<span class="sort-indicator"></span></th>
+<th>MoM<span class="sort-indicator"></span></th>
+<th>DoD<span class="sort-indicator"></span></th>
+<th>JPY_VALUE<span class="sort-indicator"></span></th>
+</tr>
+</thead>
+<tbody><tr data-symbol="8306.T"><td data-value="8306.T" style="text-align:left">8306.T <span class="co">MITSUBISHI UFJ FINANCIAL GROUP </span></td><td data-value="500.000000">500</td><td data-value="14.217192">14.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="9201.T"><td data-value="9201.T" style="text-align:left">9201.T <span class="co">JAPAN AIRLINES CO LTD</span></td><td data-value="300.000000">300</td><td data-value="12.892953">12.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8985.T"><td data-value="8985.T" style="text-align:left">8985.T <span class="co">JAPAN HOTEL REIT INVESTMENT COR</span></td><td data-value="11.000000">11</td><td data-value="19.142770">19.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="7203.T"><td data-value="7203.T" style="text-align:left">7203.T <span class="co">TOYOTA MOTOR CORP</span></td><td data-value="300.000000">300</td><td data-value="8.981262">9.0</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8963.T"><td data-value="8963.T" style="text-align:left">8963.T <span class="co">INVINCIBLE INVESTMENT CORP</span></td><td data-value="10.000000">10</td><td data-value="17.207018">17.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="9202.T"><td data-value="9202.T" style="text-align:left">9202.T <span class="co">ANA HOLDINGS INC</span></td><td data-value="200.000000">200</td><td data-value="10.266198">10.3</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="9432.T"><td data-value="9432.T" style="text-align:left">9432.T <span class="co">NTT INC</span></td><td data-value="2800.000000">2,800</td><td data-value="13.152174">13.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8316.T"><td data-value="8316.T" style="text-align:left">8316.T <span class="co">SUMITOMO MITSUI FINANCIAL GROUP</span></td><td data-value="100.000000">100</td><td data-value="13.337930">13.3</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8591.T"><td data-value="8591.T" style="text-align:left">8591.T <span class="co">ORIX CORPORATION</span></td><td data-value="100.000000">100</td><td data-value="11.740023">11.7</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="3048.T"><td data-value="3048.T" style="text-align:left">3048.T <span class="co">BIC CAMERA INC.</span></td><td data-value="100.000000">100</td><td data-value="15.087605">15.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="7513.T"><td data-value="7513.T" style="text-align:left">7513.T <span class="co">KOJIMA CO LTD</span></td><td data-value="100.000000">100</td><td data-value="18.754974">18.8</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="6526.T"><td data-value="6526.T" style="text-align:left">6526.T <span class="co">SOCIONEXT INC</span></td><td data-value="0.000000">0</td><td data-value="26.591932">26.6</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="7269.T"><td data-value="7269.T" style="text-align:left">7269.T <span class="co">SUZUKI MOTOR CORP</span></td><td data-value="0.000000">0</td><td data-value="9.109884">9.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr></tbody>
+<tfoot>
+<tr><td style="text-align:left">TOTAL</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
+</tfoot>
+</table>
+</div>
+<h3>米国株</h3>
+<div class="table-wrap">
+<table class="pf-table" id="pf-table-usd">
+<colgroup><col style="width:22%"/><col style="width:6%"/><col style="width:6%"/><col style="width:8%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:10%"/><col style="width:8%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:10%"/></colgroup>
+<thead>
+<tr>
+<th style="text-align:left">SYMBOL<span class="sort-indicator"></span></th>
+<th>SHARES<span class="sort-indicator"></span></th>
+<th>PER<span class="sort-indicator"></span></th>
+<th>USD_PRICE<span class="sort-indicator"></span></th>
+<th>YoY<span class="sort-indicator"></span></th>
+<th>MoM<span class="sort-indicator"></span></th>
+<th>DoD<span class="sort-indicator"></span></th>
+<th>USD_VALUE<span class="sort-indicator"></span></th>
+<th>JPY_PRICE<span class="sort-indicator"></span></th>
+<th>YoY<span class="sort-indicator"></span></th>
+<th>MoM<span class="sort-indicator"></span></th>
+<th>DoD<span class="sort-indicator"></span></th>
+<th>JPY_VALUE<span class="sort-indicator"></span></th>
+</tr>
+</thead>
+<tbody>
+<tr data-symbol="TSM"><td data-value="TSM" style="text-align:left">TSM <span class="co">Taiwan Semiconductor Manufactur</span></td><td data-value="28.000000">28</td><td data-value="26.180523">26.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="NVDA"><td data-value="NVDA" style="text-align:left">NVDA <span class="co">NVIDIA Corporation</span></td><td data-value="28.000000">28</td><td data-value="58.392290">58.4</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="AVGO"><td data-value="AVGO" style="text-align:left">AVGO <span class="co">Broadcom Inc.</span></td><td data-value="13.000000">13</td><td data-value="109.981680">110.0</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="AMD"><td data-value="AMD" style="text-align:left">AMD <span class="co">Advanced Micro Devices, Inc.</span></td><td data-value="22.000000">22</td><td data-value="100.077850">100.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="MRVL"><td data-value="MRVL" style="text-align:left">MRVL <span class="co">Marvell Technology, Inc.</span></td><td data-value="33.000000">33</td><td data-value="29.916000">29.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="QCOM"><td data-value="QCOM" style="text-align:left">QCOM <span class="co">QUALCOMM Incorporated</span></td><td data-value="15.000000">15</td><td data-value="15.436715">15.4</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="ARM"><td data-value="ARM" style="text-align:left">ARM <span class="co">Arm Holdings plc</span></td><td data-value="14.000000">14</td><td data-value="213.121220">213.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="MCD"><td data-value="MCD" style="text-align:left">MCD <span class="co">McDonald's Corporation</span></td><td data-value="5.000000">5</td><td data-value="26.663527">26.7</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="CDNS"><td data-value="CDNS" style="text-align:left">CDNS <span class="co">Cadence Design Systems, Inc.</span></td><td data-value="4.000000">4</td><td data-value="93.498650">93.5</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="SBUX"><td data-value="SBUX" style="text-align:left">SBUX <span class="co">Starbucks Corporation</span></td><td data-value="15.000000">15</td><td data-value="37.948055">37.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="SNPS"><td data-value="SNPS" style="text-align:left">SNPS <span class="co">Synopsys, Inc.</span></td><td data-value="2.000000">2</td><td data-value="69.892235">69.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="INTC"><td data-value="INTC" style="text-align:left">INTC <span class="co">Intel Corporation</span></td><td data-value="0.000000">0</td><td data-value="25.618557">25.6</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
+</tbody>
+<tfoot>
+<tr><td style="text-align:left">TOTAL</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
+</tfoot>
+</table>
+</div>
+<h3>全体合計</h3>
+<div class="table-wrap">
+<table class="pf-table pf-total" id="pf-total">
+<colgroup><col style="width:22%"/><col style="width:6%"/><col style="width:6%"/><col style="width:8%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:10%"/><col style="width:8%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:10%"/></colgroup>
+<thead>
+<tr>
+<th style="text-align:left">TYPE<span class="sort-indicator"></span></th>
+<th>SHARES<span class="sort-indicator"></span></th>
+<th>PER<span class="sort-indicator"></span></th>
+<th>USD_PRICE<span class="sort-indicator"></span></th>
+<th>YoY<span class="sort-indicator"></span></th>
+<th>MoM<span class="sort-indicator"></span></th>
+<th>DoD<span class="sort-indicator"></span></th>
+<th>USD_VALUE<span class="sort-indicator"></span></th>
+<th>JPY_PRICE<span class="sort-indicator"></span></th>
+<th>YoY<span class="sort-indicator"></span></th>
+<th>MoM<span class="sort-indicator"></span></th>
+<th>DoD<span class="sort-indicator"></span></th>
+<th>JPY_VALUE<span class="sort-indicator"></span></th>
+</tr>
+</thead>
+<tfoot>
+<tr><td style="text-align:left">OVERALL TOTAL</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
+</tfoot>
+</table>
+</div>
+<p class="muted" id="fx-rate"></p>
+</body>
+</html>
