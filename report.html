@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <style>
       body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; }
-      table { border-collapse: collapse; width: 100%; max-width: 100%; table-layout: fixed; }
+      table { border-collapse: collapse; width: 100%; max-width: 100%; table-layout: auto; }
       th, td { border: 1px solid #ddd; padding: 8px 10px; white-space: nowrap; }
       th { background: #f5f5f5; text-align: right; user-select: none; }
       th:first-child, td:first-child { text-align: left; }
@@ -168,6 +168,11 @@
         var d = new Date();
         var pad = (n)=> String(n).padStart(2,'0');
         return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+      }
+      function dateOnly(){
+        var d = new Date();
+        var pad = (n)=> String(n).padStart(2,'0');
+        return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
       }
       function timeStr(ts){
         try{
@@ -469,8 +474,8 @@
         var tables = document.querySelectorAll('table.pf-table');
         var totalUsdAll = 0, totalJpyAll = 0;
         var title = document.querySelector('#pf-title, body > h2');
-        if(title){ var t = (title.textContent||''); title.textContent = t.replace(/\(.*?\)/, '('+nowStr()+')'); }
-        var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+nowStr(); }
+        if(title){ var t = (title.textContent||''); title.textContent = t.replace(/\(.*?\)/, '('+dateOnly()+')'); }
+        var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+dateOnly(); }
         var usdJpy = quotes['USDJPY=X'] && quotes['USDJPY=X'].regularMarketPrice;
         // Normalize USDJPY: if rate looks inverted (e.g., 0.0067), flip it
         if (isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) {
@@ -708,7 +713,7 @@
           var cached = loadCachedQuotes();
           if (cached && cached.quotes && Object.keys(cached.quotes).length){
             updateTables(cached.quotes);
-            var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+timeStr(cached.t)+'（キャッシュ）'; }
+            var last = document.getElementById('pf-last-updated'); if(last){ var ds = String(timeStr(cached.t)||'').slice(0,10); last.textContent = '最終更新: '+ds+'（キャッシュ）'; }
           } else {
             var last2 = document.getElementById('pf-last-updated'); if(last2){ last2.textContent = '更新失敗（ネットワーク/CORS）'; }
           }
@@ -728,7 +733,7 @@
           if (cached && cached.quotes && Object.keys(cached.quotes).length){
             __pfAppliedCache = true; __pfCachedAt = cached.t;
             updateTables(cached.quotes);
-            var last = document.getElementById('pf-last-updated'); if(last){ last.textContent = '最終更新: '+timeStr(cached.t)+'（キャッシュ）'; }
+            var last = document.getElementById('pf-last-updated'); if(last){ var ds2 = String(timeStr(cached.t)||'').slice(0,10); last.textContent = '最終更新: '+ds2+'（キャッシュ）'; }
           }
         }catch(e){}
         renderFetchLog();
