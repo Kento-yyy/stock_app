@@ -5,11 +5,11 @@
 ポートフォリオの評価額を計算し、標準出力とHTMLに出力します。
 
 構成:
- - ポートフォリオCSV: symbol,shares(,currency) で保有数・通貨を記録
+ - ポートフォリオは Cloudflare D1 データベースに格納し、API 経由で取得します。
  - 設定JSON: 価格取得の設定（デフォルトは yfinance）
 
 使用例:
-  python3 portfolio_notify.py --config config.json --portfolio portfolio.csv --save-html report.html
+  python3 portfolio_notify.py --config config.json --portfolio-url https://example.workers.dev/api/portfolio --save-html report.html
 
 備考:
  - 価格取得は yfinance（APIキー不要）または Alpha Vantage（APIキー必要）を選択可能。
@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as dt
 import json
 import os
@@ -136,24 +135,23 @@ def _load_dotenv(path: str = ".env") -> None:
         pass
 
 
-def load_portfolio_csv(path: str, default_currency: str = "USD") -> List[Holding]:
+def load_portfolio_api(url: str, default_currency: str = "USD") -> List[Holding]:
+    if requests is None:
+        raise RuntimeError("'requests' パッケージが必要です。pip install requests で導入してください。")
+    res = requests.get(url, timeout=30)
+    res.raise_for_status()
+    data = res.json() if res.content else []
     holdings: List[Holding] = []
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        if "symbol" not in reader.fieldnames or "shares" not in reader.fieldnames:
-            raise ValueError("CSVヘッダに 'symbol,shares' が必要です (任意: currency)")
-        for row in reader:
-            symbol = (row.get("symbol") or "").strip()
-            shares_str = (row.get("shares") or "").strip()
-            ccy = (row.get("currency") or "").strip().upper()
-            if not symbol:
-                continue
-            try:
-                shares = float(shares_str)
-            except ValueError:
-                raise ValueError(f"shares の数値変換に失敗: symbol={symbol}, shares={shares_str}")
-            currency = ccy if ccy else default_currency.upper()
-            holdings.append(Holding(symbol=symbol, shares=shares, currency=currency))
+    for row in data:
+        symbol = str(row.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        try:
+            shares = float(row.get("shares") or 0)
+        except Exception:
+            shares = 0.0
+        currency = (row.get("currency") or default_currency).strip().upper()
+        holdings.append(Holding(symbol=symbol, shares=shares, currency=currency))
     return holdings
 
 
@@ -728,10 +726,10 @@ def format_report_html(
                     f"<tr data-symbol='{symbol}'>"
                     f"<td style='text-align:left'>{symbol}</td>"
                     f"<td>{shares_disp}</td>"
-                    f"<td data-value='{'' if up!=up else f"{up:.6f}"}'>{'' if up!=up else f"{up:,.2f}"}</td>"
-                    f"<td data-value='{'' if uv!=uv else f"{uv:.6f}"}'>{'' if uv!=uv else f"{uv:,.2f}"}</td>"
-                    f"<td data-value='{'' if jp!=jp else f"{jp:.6f}"}'>{'' if jp!=jp else f"{jp:,.0f}"}</td>"
-                    f"<td data-value='{'' if jv!=jv else f"{jv:.6f}"}'>{'' if jv!=jv else f"{jv:,.0f}"}</td>"
+                    f"<td data-value='{'' if up!=up else f'{up:.6f}'}'>{'' if up!=up else f'{up:,.2f}'}</td>"
+                    f"<td data-value='{'' if uv!=uv else f'{uv:.6f}'}'>{'' if uv!=uv else f'{uv:,.2f}'}</td>"
+                    f"<td data-value='{'' if jp!=jp else f'{jp:.6f}'}'>{'' if jp!=jp else f'{jp:,.0f}'}</td>"
+                    f"<td data-value='{'' if jv!=jv else f'{jv:.6f}'}'>{'' if jv!=jv else f'{jv:,.0f}'}</td>"
                     f"</tr>"
                 )
             body_lines.append("</tbody>")
@@ -769,21 +767,22 @@ def format_report_html(
                     return "<td data-value=''></td>"
                 cls = 'up' if numeric_val > 0 else ('down' if numeric_val < 0 else '')
                 return f"<td data-value='{numeric_val:.6f}'><span class='chg'><span class='{cls}'>{label_val}</span></span></td>"
-            row_html = (
-                f"<tr data-symbol='{r.symbol}'>"
-                f"<td style='text-align:left' data-value='{r.symbol}'>{r.symbol}{('' if not r.company_name else f" <span class='co'>{r.company_name}</span>")}</td>"
-                f"<td data-value='{'' if r.shares!=r.shares else f"{float(r.shares):.6f}"}'>{shares_disp}</td>"
-                f"<td data-value='{'' if r.per!=r.per else f"{r.per:.6f}"}'>{per_disp}</td>"
-                f"<td data-value='{'' if r.usd_price!=r.usd_price else f"{r.usd_price:.6f}"}'>{usd_price_disp}</td>"
-                f"{_pct_td(usd_yoy_s, r.usd_yoy)}"
+                name_html = '' if not r.company_name else f" <span class='co'>{r.company_name}</span>"
+                row_html = (
+                  f"<tr data-symbol='{r.symbol}'>"
+                  f"<td style='text-align:left' data-value='{r.symbol}'>{r.symbol}{name_html}</td>"
+                  f"<td data-value='{'' if r.shares!=r.shares else f'{float(r.shares):.6f}'}'>{shares_disp}</td>"
+                  f"<td data-value='{'' if r.per!=r.per else f'{r.per:.6f}'}'>{per_disp}</td>"
+                  f"<td data-value='{'' if r.usd_price!=r.usd_price else f'{r.usd_price:.6f}'}'>{usd_price_disp}</td>"
+                  f"{_pct_td(usd_yoy_s, r.usd_yoy)}"
                 f"{_pct_td(usd_mom_s, r.usd_mom)}"
                 f"{_pct_td(usd_dod_s, r.usd_dod)}"
-                f"<td data-value='{'' if r.usd_value!=r.usd_value else f"{r.usd_value:.6f}"}'>{usd_value_disp}</td>"
-                f"<td data-value='{'' if r.jpy_price!=r.jpy_price else f"{r.jpy_price:.6f}"}'>{jpy_price_disp}</td>"
+                f"<td data-value='{'' if r.usd_value!=r.usd_value else f'{r.usd_value:.6f}'}'>{usd_value_disp}</td>"
+                f"<td data-value='{'' if r.jpy_price!=r.jpy_price else f'{r.jpy_price:.6f}'}'>{jpy_price_disp}</td>"
                 f"{_pct_td(jpy_yoy_s, r.jpy_yoy)}"
                 f"{_pct_td(jpy_mom_s, r.jpy_mom)}"
                 f"{_pct_td(jpy_dod_s, r.jpy_dod)}"
-                f"<td data-value='{'' if r.jpy_value!=r.jpy_value else f"{r.jpy_value:.6f}"}'>{jpy_value_disp}</td>"
+                f"<td data-value='{'' if r.jpy_value!=r.jpy_value else f'{r.jpy_value:.6f}'}'>{jpy_value_disp}</td>"
                 f"</tr>"
             )
             if (r.currency or '').upper() == 'JPY':
@@ -1139,7 +1138,11 @@ def dataset_to_csv(dataset: Dict) -> str:
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ポートフォリオ評価レポート生成ツール")
     p.add_argument("--config", default="config.json", help="設定ファイル(JSON)。デフォルト: config.json")
-    p.add_argument("--portfolio", default="portfolio.csv", help="ポートフォリオCSV。デフォルト: portfolio.csv")
+    p.add_argument(
+        "--portfolio-url",
+        default="http://127.0.0.1:8787/api/portfolio",
+        help="ポートフォリオ取得APIのURL",
+    )
     # 以前のオプションは廃止しました
     p.add_argument(
         "--sort-by",
@@ -1164,7 +1167,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     _load_dotenv()
     try:
         cfg = load_config(args.config)
-        holdings = load_portfolio_csv(args.portfolio, default_currency=cfg.quote_currency)
+        holdings = load_portfolio_api(
+            args.portfolio_url, default_currency=cfg.quote_currency
+        )
         if not holdings:
             print("ポートフォリオが空です", file=sys.stderr)
             return 2
