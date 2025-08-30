@@ -45,6 +45,14 @@
   - 先に差分だけ見たい場合:
     - `python3 scripts/sync_portfolio_csv.py --csv portfolio.csv --api http://127.0.0.1:8787/api/portfolio --mode replace --dry-run`
 
+  - Workerのデプロイもこのコマンドから実行可能（`--deploy`）:
+    - `python3 scripts/sync_portfolio_csv.py \
+        --deploy --worker tight-truth-243e \
+        --csv portfolio.csv \
+        --api https://tight-truth-243e.<your-account>.workers.dev/api/portfolio \
+        --mode replace`
+    - 内部で `wrangler deploy --name tight-truth-243e` を `proxy/` ディレクトリで実行します。
+
 
 **混在ポートフォリオ（米国株+日本株）**
 - DB の `currency` 列で銘柄ごとに通貨を指定できます（`USD` または `JPY`）。

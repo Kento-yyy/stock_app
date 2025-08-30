@@ -31,6 +31,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+import subprocess
+import shutil
 from typing import Dict, List, Optional, Tuple
 
 
@@ -115,11 +117,34 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--api", default=DEFAULT_API, help="APIのURL (/api/portfolio)")
     p.add_argument("--mode", choices=["upsert", "replace"], default="upsert", help="upsert: 追加/更新のみ, replace: CSVに無い銘柄を削除")
     p.add_argument("--dry-run", action="store_true", help="APIを呼ばずに差分のみ表示")
+    # Optional: deploy Worker before syncing (so worker.jsの変更もこのコマンドから反映)
+    p.add_argument("--deploy", action="store_true", help="同期前に Cloudflare Worker をデプロイする")
+    p.add_argument("--worker", help="wrangler deploy の --name に渡す Worker 名 (例: tight-truth-243e)")
+    p.add_argument("--proxy-dir", default="proxy", help="wrangler.toml があるディレクトリ (既定: proxy)")
     return p.parse_args(argv)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+    # Optional deploy
+    if args.deploy:
+        cmd = None
+        # prefer 'wrangler' if exists, else use npx wrangler
+        if shutil.which("wrangler"):
+            cmd = ["wrangler", "deploy"]
+        else:
+            cmd = ["npx", "-y", "wrangler", "deploy"]
+        if args.worker:
+            cmd += ["--name", args.worker]
+        if args.dry_run:
+            print("DRY-RUN deploy:", " ".join(cmd), f"(cwd={args.proxy_dir})")
+        else:
+            try:
+                print("Deploying Worker...", " ".join(cmd))
+                subprocess.run(cmd, cwd=args.proxy_dir, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Workerデプロイに失敗しました: {e}", file=sys.stderr)
+                return 5
     try:
         csv_holdings = read_csv(args.csv)
     except FileNotFoundError:
@@ -162,4 +187,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
