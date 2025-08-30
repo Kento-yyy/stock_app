@@ -765,6 +765,13 @@
             if (!quotes || Object.keys(quotes).length === 0) {
               try { quotes = await fetchViaProxy(syms); } catch(e2) { quotes = {}; }
             }
+            // Ensure USDJPY=X exists for USD<->JPY conversions in UI
+            try{
+              if (!quotes['USDJPY=X']){
+                var fx = await fetchViaProxyOne('USDJPY=X');
+                if (fx && fx['USDJPY=X']) quotes['USDJPY=X'] = fx['USDJPY=X'];
+              }
+            }catch(_){ }
             // Fast path: only re-fetch suspicious JP rows (rare) concurrently
             try {
               var codes = new Set(syms.filter(function(s){return /\.T$/i.test(s);}).map(function(s){return parseInt(s,10);}));
