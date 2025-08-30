@@ -236,6 +236,22 @@
         }catch(e){}
         return null;
       }
+      // WorkerのルートURLを推定（?api に /quote が付いている互換ケースに対応）
+      function getWorkerBase(){
+        var b = getApiBase();
+        if (!b) return null;
+        try{
+          // normalize: strip trailing /quote or /quote/...
+          var u = new URL(b, location.origin);
+          if (/\/quote(\/.+)?$/i.test(u.pathname)){
+            u.pathname = u.pathname.replace(/\/quote(\/.+)?$/i, '/');
+          }
+          return u.toString().replace(/\/$/, '');
+        }catch(_){
+          // fallback string operations
+          return b.replace(/\/quote(\/.+)?$/i, '');
+        }
+      }
       // Persist and restore last successful quotes in localStorage
       function loadCachedQuotes(){
         try{
@@ -862,7 +878,7 @@
         return el;
       }
       async function loadDbSnapshot(){
-        var base = getApiBase();
+        var base = getWorkerBase();
         var title = document.getElementById('db-snap-title');
         var wrap = document.getElementById('db-snap-wrap');
         if (!base){ if(title) title.style.display='none'; if(wrap) wrap.style.display='none'; return; }
