@@ -7,6 +7,18 @@ export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
+      // Simple auth guard for write/admin endpoints
+      const isPreflight = request.method === 'OPTIONS';
+      const hasValidKey = () => {
+        const need = (env.API_KEY && String(env.API_KEY).length > 0);
+        if (!need) return false;
+        const got = request.headers.get('x-api-key');
+        return !!got && got === String(env.API_KEY);
+      };
+      const requireKey = () => {
+        if (isPreflight) return false; // allow preflight
+        return !hasValidKey();
+      };
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: corsHeaders() });
       }
@@ -72,6 +84,7 @@ export default {
         }
       }
       if (url.pathname === '/api/quotes/refresh') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
@@ -81,6 +94,7 @@ export default {
         return json({ ok: true, updated_current: a.updated, updated_baselines: b.updated });
       }
       if (url.pathname === '/api/quotes/refresh-current') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
@@ -88,6 +102,7 @@ export default {
         return json({ ok: true, updated: r.updated });
       }
       if (url.pathname === '/api/quotes/refresh-baselines') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
@@ -96,6 +111,7 @@ export default {
       }
       // Admin: reorder DB columns by recreating tables in canonical order
       if (url.pathname === '/admin/reorder-columns') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
@@ -107,8 +123,53 @@ export default {
         }catch(e){ /* ignore */ }
         return json({ ok: true });
       }
+      // Admin: create fundamentals rows for all holdings symbols (no values yet)
+      if (url.pathname === '/admin/fundamentals-sync') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        try {
+          const r = await syncFundamentalsFromHoldings(env);
+          return json({ ok: true, inserted: r.inserted, existing: r.existing });
+        } catch (e) {
+          return json({ ok: false, error: String(e) }, 500);
+        }
+      }
+      if (url.pathname === '/admin/fundamentals-backfill-one') {
+        if (request.method !== 'GET' && request.method !== 'POST') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        const sym = String(new URL(request.url).searchParams.get('symbol') || '').toUpperCase();
+        if (!sym) return json({ error: 'symbol required' }, 400);
+        try{
+          await ensureFundamentalsSchema(env);
+          let f = !/\.T$/i.test(sym) ? await fetchPolygonFundamentalsOne(env, sym) : null;
+          if (!f || (f.shares_outstanding==null && !f.currency && f.net_income_forecast==null)){
+            try{ const y = await fetchYahooFundamentalsOne(sym); f = { ...(f||{}), ...(y||{}) }; }catch(_){ }
+            try{ const q = await fetchYahooQuoteV7(sym); f = { ...(f||{}), ...(q||{}) }; }catch(_){ }
+          }
+          if (!f) return json({ ok:false, updated:false, reason:'no data' });
+          const now = new Date().toISOString();
+          const ni = Number.isFinite(f.net_income_forecast) ? Number(f.net_income_forecast) : null;
+          const so = Number.isFinite(f.shares_outstanding) ? Number(f.shares_outstanding) : null;
+          const ccy = f.currency ? String(f.currency).toUpperCase() : null;
+          const fy = f.fiscal_year != null ? String(f.fiscal_year) : null;
+          await env.DB.prepare(
+            'UPDATE fundamentals SET '
+            + 'net_income_forecast = COALESCE(?, net_income_forecast), '
+            + 'shares_outstanding = COALESCE(?, shares_outstanding), '
+            + 'currency = COALESCE(?, currency), '
+            + 'fiscal_year = COALESCE(?, fiscal_year), '
+            + 'updated_at = ? WHERE symbol = ?'
+          ).bind(ni, so, ccy, fy, now, sym).run();
+          return json({ ok:true, sym, applied: f });
+        }catch(e){ return json({ ok:false, error:String(e) }, 500); }
+      }
+      // note: fundamentals auto-fetch/backfill endpoints removed
       // Admin: backfill missing USD columns using currency rules and FX
       if (url.pathname === '/admin/backfill-usd') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
@@ -127,6 +188,7 @@ export default {
           ).all();
           return json(results);
         } else if (request.method === 'POST') {
+          if (requireKey()) return json({ error: 'unauthorized' }, 401);
           const body = await request.json();
           const sym = String(body.symbol || '').trim();
           const shares = Number(body.shares);
@@ -140,6 +202,7 @@ export default {
           ).bind(sym, shares, cur, name).run();
           return json({ ok: true });
         } else if (request.method === 'DELETE') {
+          if (requireKey()) return json({ error: 'unauthorized' }, 401);
           const sym = url.searchParams.get('symbol');
           if (!sym) return json({ error: 'symbol required' }, 400);
           await env.DB.prepare('DELETE FROM holdings WHERE symbol = ?')
@@ -328,6 +391,7 @@ export default {
           ).all();
           return json(results);
         } else if (request.method === 'POST') {
+          if (requireKey()) return json({ error: 'unauthorized' }, 401);
           try { await ensureFundamentalsSchema(env); } catch(e){}
           const body = await request.json().catch(()=>({}));
           const items = Array.isArray(body) ? body : [body];
@@ -353,6 +417,7 @@ export default {
           }
           return json({ ok: true, updated });
         } else if (request.method === 'DELETE') {
+          if (requireKey()) return json({ error: 'unauthorized' }, 401);
           try { await ensureFundamentalsSchema(env); } catch(e){}
           const urlObj = new URL(request.url);
           const sym = String(urlObj.searchParams.get('symbol') || '').toUpperCase();
@@ -417,6 +482,33 @@ async function ensureFundamentalsSchema(env){
   for (const sql of addCols){ try{ await env.DB.prepare(sql).run(); }catch(_){ } }
 }
 
+async function syncFundamentalsFromHoldings(env){
+  await ensureHoldingsSchema(env);
+  await ensureFundamentalsSchema(env);
+  // Load holdings
+  const { results: holdings } = await env.DB.prepare('SELECT symbol, currency FROM holdings ORDER BY symbol').all();
+  // Load existing fundamentals symbols
+  let existingSet = new Set();
+  try {
+    const { results: existed } = await env.DB.prepare('SELECT symbol FROM fundamentals').all();
+    for (const r of (existed || [])) existingSet.add(String(r.symbol).toUpperCase());
+  } catch(_){}
+  let inserted = 0, existing = 0;
+  const now = new Date().toISOString();
+  for (const h of (holdings || [])){
+    const sym = String(h.symbol || '').toUpperCase();
+    if (!sym) continue;
+    if (existingSet.has(sym)) { existing++; continue; }
+    const ccy = String(h.currency || (/\.T$/i.test(sym) ? 'JPY' : '')).toUpperCase() || null;
+    await env.DB.prepare(
+      'INSERT INTO fundamentals(symbol, currency, updated_at) VALUES(?,?,?)'
+    ).bind(sym, ccy, now).run();
+    inserted++;
+  }
+  return { inserted, existing };
+}
+
+// Fundamentals auto-fetch helpers removed by request.
 // Fill null usd/usd_* columns using currency and available FX (Yahoo USDJPY)
 async function backfillUsd(env){
   await ensureQuotesSchema(env);
