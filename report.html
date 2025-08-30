@@ -111,7 +111,7 @@
         if (window.__pfLoaded) return;
         try{
           var base = (function(){ try{ return getWorkerBase(); }catch(e){ return null; } })();
-          var url = base ? (base + '/api/portfolio') : '/api/portfolio';
+          var url = base ? (base + '/api/portfolio_with_prices') : '/api/portfolio';
           var res = await fetch(url);
           var rows = await res.json();
           var jpyBody = document.querySelector('#pf-table-jpy tbody');
@@ -128,8 +128,9 @@
             if (name) { var sp = document.createElement('span'); sp.className = 'co'; sp.textContent = name; tdSym.appendChild(document.createTextNode(' ')); tdSym.appendChild(sp); }
             tr.appendChild(tdSym);
             var tdShares = document.createElement('td');
-            tdShares.setAttribute('data-value', isFinite(r.shares)? String(r.shares): '');
-            tdShares.textContent = isFinite(r.shares)? String(r.shares): '';
+            var sh = (typeof r.shares === 'number' ? r.shares : parseFloat(r.shares));
+            tdShares.setAttribute('data-value', isFinite(sh)? String(sh): '');
+            tdShares.textContent = isFinite(sh)? String(sh): '';
             tr.appendChild(tdShares);
             for(var i=0;i<11;i++){ var td=document.createElement('td'); td.setAttribute('data-value',''); tr.appendChild(td); }
             if (/\.T$/i.test(r.symbol)) { if(jpyBody) jpyBody.appendChild(tr); }
