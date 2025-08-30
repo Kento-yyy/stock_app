@@ -1,9 +1,94 @@
+/*! konnnichiwa — deployment test marker (preserve in some bundlers) */
+const BUILD_INFO = {
+  marker: 'konnnichiwa',
+  time: new Date().toISOString()
+};
 export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: corsHeaders() });
+      }
+      if (url.pathname === '/__version') {
+        return json({ ...BUILD_INFO });
+      }
+      // Quotes API: persist latest prices into D1
+      if (url.pathname === '/api/quotes') {
+        if (request.method === 'GET') {
+          try {
+            const { results } = await env.DB.prepare(
+              'SELECT symbol, price, currency, jpy, updated_at FROM quotes ORDER BY symbol'
+            ).all();
+            return json(results);
+          } catch (e) {
+            // maybe table not exists yet
+            return json([]);
+          }
+        }
+        return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
+      }
+      if (url.pathname === '/api/quotes/refresh') {
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        // 1) load holdings symbols
+        const { results: holdings } = await env.DB.prepare(
+          'SELECT symbol FROM holdings ORDER BY symbol'
+        ).all();
+        const symbols = Array.from(new Set((holdings || []).map(r => String(r.symbol || '').toUpperCase()).filter(Boolean)));
+        if (!symbols.length) return json({ ok: true, updated: 0, detail: 'no holdings' });
+        // include FX for conversion
+        if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
+
+        // 2) fetch quotes (Yahoo first, fill missing with Stooq)
+        let quotes = {};
+        try { quotes = await fetchYahoo(symbols); } catch (e) {}
+        const missing = symbols.filter(s => !quotes[s]);
+        if (missing.length) {
+          try {
+            const add = await fetchStooq(missing);
+            for (const s of missing) { if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
+          } catch (e) {}
+        }
+        // Normalize currency and compute JPY
+        if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)) {
+          const r = quotes['USDJPY=X'].regularMarketPrice;
+          if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
+          quotes['USDJPY=X'].currency = 'JPY';
+        }
+        for (const s of Object.keys(quotes)) {
+          if (/\.T$/i.test(s)) {
+            quotes[s].currency = 'JPY';
+          }
+        }
+        let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
+        if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
+
+        // 3) ensure table exists
+        await env.DB.prepare(
+          'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT)'
+        ).run();
+
+        // 4) upsert rows
+        const now = new Date().toISOString();
+        let updated = 0;
+        for (const s of symbols) {
+          if (s === 'USDJPY=X') continue;
+          const q = quotes[s];
+          if (!q) continue;
+          const p = Number(q.regularMarketPrice);
+          if (!Number.isFinite(p)) continue;
+          const cur = String(q.currency || '').toUpperCase() || null;
+          let jpy = null;
+          if (cur === 'JPY' || /\.T$/i.test(s)) jpy = p;
+          else if (cur === 'USD' && Number.isFinite(usdJpy)) jpy = p * usdJpy;
+          await env.DB.prepare(
+            'INSERT OR REPLACE INTO quotes(symbol, price, currency, jpy, updated_at) VALUES(?,?,?,?,?)'
+          ).bind(s, p, cur, jpy, now).run();
+          updated++;
+        }
+        return json({ ok: true, updated });
       }
       if (url.pathname === '/api/portfolio') {
         if (request.method === 'GET') {
