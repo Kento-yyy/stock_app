@@ -107,6 +107,7 @@
 - `portfolio.csv` — 銘柄と保有株数を CSV で管理するファイル。`report.html` と `portfolio.html` で読み込まれます
 - `portfolio.html` — `portfolio.csv` を読み込んで表示する簡易ページ
 
+
 ## 使い方
 1. GitHub Pages など任意の静的ホスティングに本リポジトリを配置します。
 2. `report.html` をブラウザで開くだけで最新価格が表示されます。
