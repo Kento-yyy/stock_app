@@ -84,6 +84,16 @@
       if (!Array.isArray(rows)) throw new Error('invalid quotes');
       return rows;
     }
+    async function fetchFundamentals(){
+      var base = getWorkerBase(); if (!base) throw new Error('API未指定: ?api=...');
+      var r = await fetch(base + '/api/fundamentals', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      var rows = await r.json();
+      if (!Array.isArray(rows)) throw new Error('invalid fundamentals');
+      var m = {};
+      rows.forEach(function(x){ if (x && x.symbol) m[String(x.symbol).toUpperCase()] = x; });
+      return m;
+    }
 
     function computeFx(_quotesMap){
       // FXを使用しない前提。DBの usd/jpy をそのまま使う。
@@ -98,7 +108,7 @@
       return { hmap: hmap, qmap: qmap };
     }
 
-    function computeRow(sym, h, q, fx){
+    function computeRow(sym, h, q, fx, fundMap){
       var shares = parseNum(h && h.shares);
       // DBの usd/jpy をそのまま使用（欠損時は空表示）
       var usdNow = parseNum(q && q.usd);
@@ -128,10 +138,30 @@
       if (Number.isFinite(j1m) && Number.isFinite(jpyP)) jpy1m = pct(j1m, jpyP);
       if (Number.isFinite(j1y) && Number.isFinite(jpyP)) jpy1y = pct(j1y, jpyP);
 
+      // PER: use fundamentals if available (currency-specific)
+      var per = null;
+      try{
+        var f = fundMap && fundMap[sym];
+        if (f && Number.isFinite(Number(f.net_income_forecast)) && Number.isFinite(Number(f.shares_outstanding))){
+          var so = Number(f.shares_outstanding);
+          var ccy = String(f.currency || '').toUpperCase();
+          if (so > 0){
+            if (ccy === 'USD' && Number.isFinite(usdP)){
+              var eps_usd = Number(f.net_income_forecast) / so;
+              if (eps_usd > 0) per = usdP / eps_usd;
+            } else if (ccy === 'JPY' && Number.isFinite(jpyP)){
+              var eps_jpy = Number(f.net_income_forecast) / so;
+              if (eps_jpy > 0) per = jpyP / eps_jpy;
+            }
+          }
+        }
+      }catch(e){}
+
       return {
         symbol: sym,
         shares: shares,
         usdPrice: usdP,
+        per: Number.isFinite(per) ? per : null,
         usd1d: usd1d,
         usd1m: usd1m,
         usd1y: usd1y,
@@ -160,7 +190,10 @@
         if (Number.isFinite(r.shares)) { tdShares.textContent = String(r.shares); tdShares.setAttribute('data-value', String(r.shares)); }
         else { tdShares.textContent = ''; tdShares.setAttribute('data-value',''); }
         tr.appendChild(tdShares);
-        tr.appendChild(trText('')); // PER (not implemented)
+        var tdPer = document.createElement('td');
+        if (Number.isFinite(r.per)) { tdPer.textContent = String(r.per.toFixed(1)); tdPer.setAttribute('data-value', String(r.per)); }
+        else { tdPer.textContent = ''; tdPer.setAttribute('data-value',''); }
+        tr.appendChild(tdPer);
         tr.appendChild(trNumUSD(r.usdPrice));
         tr.appendChild(tdPctCell(r.usd1d));
         tr.appendChild(tdPctCell(r.usd1m));
@@ -265,12 +298,13 @@
         var maps = buildMaps(holdings, quotes);
         var qmap = maps.qmap, hmap = maps.hmap;
         var fx = computeFx(qmap);
+        var fundMap = await fetchFundamentals().catch(function(){ return {}; });
         // Build computed rows for JP and US
         var syms = Object.keys(hmap).filter(function(s){ return s !== 'USDJPY=X'; }).sort();
         var jpRows = [], usRows = [];
         syms.forEach(function(s){
           var h = hmap[s]; var q = qmap[s] || null;
-          var r = computeRow(s, h, q, fx);
+          var r = computeRow(s, h, q, fx, fundMap);
           if (isJpx(s)) jpRows.push(r); else usRows.push(r);
         });
         // Render tables

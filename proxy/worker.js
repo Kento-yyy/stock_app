@@ -107,6 +107,18 @@ export default {
         }catch(e){ /* ignore */ }
         return json({ ok: true });
       }
+      // Admin: backfill missing USD columns using currency rules and FX
+      if (url.pathname === '/admin/backfill-usd') {
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        try {
+          const r = await backfillUsd(env);
+          return json({ ok: true, updated: r.updated });
+        } catch (e) {
+          return json({ ok: false, error: String(e) }, 500);
+        }
+      }
       if (url.pathname === '/api/portfolio') {
         if (request.method === 'GET') {
           try { await ensureHoldingsSchema(env); } catch(e){}
@@ -307,6 +319,49 @@ export default {
 
         return json({ quotes }, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
       }
+      // Fundamentals API: manage forecasted net income etc.
+      if (url.pathname === '/api/fundamentals') {
+        if (request.method === 'GET') {
+          try { await ensureFundamentalsSchema(env); } catch(e){}
+          const { results } = await env.DB.prepare(
+            'SELECT symbol, net_income_forecast, shares_outstanding, currency, fiscal_year, updated_at FROM fundamentals ORDER BY symbol'
+          ).all();
+          return json(results);
+        } else if (request.method === 'POST') {
+          try { await ensureFundamentalsSchema(env); } catch(e){}
+          const body = await request.json().catch(()=>({}));
+          const items = Array.isArray(body) ? body : [body];
+          let updated = 0;
+          for (const it of items){
+            const sym = String(it.symbol || '').toUpperCase();
+            if (!sym) continue;
+            const ni = (it.net_income_forecast != null) ? Number(it.net_income_forecast) : null;
+            const so = (it.shares_outstanding != null) ? Number(it.shares_outstanding) : null;
+            const ccy = String(it.currency || '').toUpperCase() || null;
+            const fy = it.fiscal_year != null ? String(it.fiscal_year) : null;
+            const now = new Date().toISOString();
+            await env.DB.prepare(
+              'INSERT INTO fundamentals(symbol, net_income_forecast, shares_outstanding, currency, fiscal_year, updated_at) VALUES(?,?,?,?,?,?) '
+              + 'ON CONFLICT(symbol) DO UPDATE SET '
+              + 'net_income_forecast=excluded.net_income_forecast, '
+              + 'shares_outstanding=excluded.shares_outstanding, '
+              + 'currency=COALESCE(excluded.currency, currency), '
+              + 'fiscal_year=COALESCE(excluded.fiscal_year, fiscal_year), '
+              + 'updated_at=excluded.updated_at'
+            ).bind(sym, ni, so, ccy, fy, now).run();
+            updated++;
+          }
+          return json({ ok: true, updated });
+        } else if (request.method === 'DELETE') {
+          try { await ensureFundamentalsSchema(env); } catch(e){}
+          const urlObj = new URL(request.url);
+          const sym = String(urlObj.searchParams.get('symbol') || '').toUpperCase();
+          if (!sym) return json({ error: 'symbol required' }, 400);
+          await env.DB.prepare('DELETE FROM fundamentals WHERE symbol = ?').bind(sym).run();
+          return json({ ok: true });
+        }
+        return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,DELETE,OPTIONS' });
+      }
       return json({ error: 'not found' }, 404);
     } catch (e) {
       return json({ error: 'server error', detail: String(e) }, 500);
@@ -338,6 +393,107 @@ async function ensureHoldingsSchema(env){
   try {
     await env.DB.prepare('ALTER TABLE holdings ADD COLUMN company_name TEXT').run();
   } catch(_){ /* ignore if exists */ }
+}
+
+async function ensureFundamentalsSchema(env){
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS fundamentals ('+
+      'symbol TEXT PRIMARY KEY, '+
+      'net_income_forecast REAL, '+
+      'shares_outstanding REAL, '+
+      'currency TEXT, '+
+      'fiscal_year TEXT, '+
+      'updated_at TEXT'+
+    ')'
+  ).run();
+  // Columns added over time (safe if already exist)
+  const addCols = [
+    'ALTER TABLE fundamentals ADD COLUMN net_income_forecast REAL',
+    'ALTER TABLE fundamentals ADD COLUMN shares_outstanding REAL',
+    'ALTER TABLE fundamentals ADD COLUMN currency TEXT',
+    'ALTER TABLE fundamentals ADD COLUMN fiscal_year TEXT',
+    'ALTER TABLE fundamentals ADD COLUMN updated_at TEXT',
+  ];
+  for (const sql of addCols){ try{ await env.DB.prepare(sql).run(); }catch(_){ } }
+}
+
+// Fill null usd/usd_* columns using currency and available FX (Yahoo USDJPY)
+async function backfillUsd(env){
+  await ensureQuotesSchema(env);
+  // Load rows
+  let rows = [];
+  try {
+    const { results } = await env.DB.prepare(
+      'SELECT symbol, price, currency, jpy, usd, updated_at, '+
+      'price_1d, jpy_1d, usd_1d, updated_1d_at, '+
+      'price_1m, jpy_1m, usd_1m, updated_1m_at, '+
+      'price_3m, jpy_3m, usd_3m, updated_3m_at, '+
+      'price_6m, jpy_6m, usd_6m, updated_6m_at, '+
+      'price_1y, jpy_1y, usd_1y, updated_1y_at, '+
+      'price_3y, jpy_3y, usd_3y, updated_3y_at FROM quotes'
+    ).all();
+    rows = results || [];
+  } catch (_) { rows = []; }
+  if (!rows.length) return { updated: 0 };
+  // Try get USDJPY for conversion when needed
+  let usdJpy;
+  try {
+    const q = await fetchYahoo(['USDJPY=X']);
+    usdJpy = q && q['USDJPY=X'] && Number(q['USDJPY=X'].regularMarketPrice);
+    if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
+  } catch (_) { usdJpy = undefined; }
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (const r of rows){
+    const sym = String(r.symbol || '').toUpperCase();
+    if (!sym) continue;
+    const cur = String(r.currency || (/\.T$/i.test(sym) ? 'JPY' : 'USD')).toUpperCase();
+    // Compute target values
+    const out = { usd: r.usd, usd_1d: r.usd_1d, usd_1m: r.usd_1m, usd_3m: r.usd_3m, usd_6m: r.usd_6m, usd_1y: r.usd_1y, usd_3y: r.usd_3y };
+    let changed = false;
+    function setIfNull(key, val){ if (out[key] == null && Number.isFinite(val)) { out[key] = val; changed = true; } }
+    if (cur === 'USD'){
+      setIfNull('usd', Number(r.price));
+      setIfNull('usd_1d', Number(r.price_1d));
+      setIfNull('usd_1m', Number(r.price_1m));
+      setIfNull('usd_3m', Number(r.price_3m));
+      setIfNull('usd_6m', Number(r.price_6m));
+      setIfNull('usd_1y', Number(r.price_1y));
+      setIfNull('usd_3y', Number(r.price_3y));
+    } else if (cur === 'JPY' && Number.isFinite(usdJpy) && usdJpy > 0) {
+      // Convert from JPY using FX
+      const fx = Number(usdJpy);
+      setIfNull('usd', Number(r.jpy) / fx);
+      setIfNull('usd_1d', Number(r.jpy_1d) / fx);
+      setIfNull('usd_1m', Number(r.jpy_1m) / fx);
+      setIfNull('usd_3m', Number(r.jpy_3m) / fx);
+      setIfNull('usd_6m', Number(r.jpy_6m) / fx);
+      setIfNull('usd_1y', Number(r.jpy_1y) / fx);
+      setIfNull('usd_3y', Number(r.jpy_3y) / fx);
+    }
+    if (!changed) continue;
+    await env.DB.prepare(
+      'UPDATE quotes SET usd = COALESCE(?, usd), '+
+      'usd_1d = COALESCE(?, usd_1d), '+
+      'usd_1m = COALESCE(?, usd_1m), '+
+      'usd_3m = COALESCE(?, usd_3m), '+
+      'usd_6m = COALESCE(?, usd_6m), '+
+      'usd_1y = COALESCE(?, usd_1y), '+
+      'usd_3y = COALESCE(?, usd_3y) '+
+      'WHERE symbol = ?'
+    ).bind(
+      Number.isFinite(out.usd) ? out.usd : null,
+      Number.isFinite(out.usd_1d) ? out.usd_1d : null,
+      Number.isFinite(out.usd_1m) ? out.usd_1m : null,
+      Number.isFinite(out.usd_3m) ? out.usd_3m : null,
+      Number.isFinite(out.usd_6m) ? out.usd_6m : null,
+      Number.isFinite(out.usd_1y) ? out.usd_1y : null,
+      Number.isFinite(out.usd_3y) ? out.usd_3y : null,
+      sym
+    ).run();
+    updated++;
+  }
+  return { updated };
 }
 
 async function reorderHoldings(env){
