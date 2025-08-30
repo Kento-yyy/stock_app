@@ -30,6 +30,11 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
+try:
+    import yfinance as yf  # type: ignore
+except Exception:
+    yf = None
+
 
 DEFAULT_API = "http://127.0.0.1:8787/api/portfolio"
 
@@ -108,14 +113,17 @@ def yahoo_names(symbols: List[str]) -> Dict[str, str]:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 j = json.loads(resp.read().decode("utf-8"))
         except Exception:
-            # try secondary host
-            url2 = (
-                "https://query2.finance.yahoo.com/v7/finance/quote?symbols="
-                + urllib.parse.quote(",".join(batch))
-            )
-            req2 = urllib.request.Request(url2, headers=uah)
-            with urllib.request.urlopen(req2, timeout=20) as resp:
-                j = json.loads(resp.read().decode("utf-8"))
+            # try secondary host, tolerate failures
+            try:
+                url2 = (
+                    "https://query2.finance.yahoo.com/v7/finance/quote?symbols="
+                    + urllib.parse.quote(",".join(batch))
+                )
+                req2 = urllib.request.Request(url2, headers=uah)
+                with urllib.request.urlopen(req2, timeout=20) as resp:
+                    j = json.loads(resp.read().decode("utf-8"))
+            except Exception:
+                j = {"quoteResponse": {"result": []}}
         arr = (j or {}).get("quoteResponse", {}).get("result", []) or []
         for r in arr:
             try:
@@ -132,6 +140,38 @@ def yahoo_names(symbols: List[str]) -> Dict[str, str]:
                 continue
         # be gentle
         time.sleep(0.2)
+    return out
+
+
+def yfinance_names(symbols: List[str]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    if yf is None:
+        return out
+    for s in symbols:
+        try:
+            t = yf.Ticker(s)
+            name = None
+            # fast_info first
+            try:
+                fi = t.fast_info
+                if fi:
+                    try:
+                        name = fi.get("shortName") or fi.get("longName")
+                    except AttributeError:
+                        name = getattr(fi, "shortName", None) or getattr(fi, "longName", None)
+            except Exception:
+                name = None
+            if not name:
+                try:
+                    info = t.info or {}
+                except Exception:
+                    info = {}
+                name = info.get("shortName") or info.get("longName") or info.get("name")
+            if isinstance(name, str) and name.strip():
+                out[s.upper()] = name.strip()
+        except Exception:
+            continue
+        time.sleep(0.05)
     return out
 
 
@@ -163,7 +203,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     symbols = [h.symbol for h in targets]
     print(f"Yahooから社名取得: {len(symbols)}件")
+    # First try Yahoo v7 (batch)
     name_map = yahoo_names(symbols)
+    # Fill missing via yfinance if available
+    missing = [s for s in symbols if s.upper() not in name_map]
+    if missing:
+        ymap = yfinance_names(missing)
+        name_map.update(ymap)
     updated = 0
     for h in targets:
         nm = name_map.get(h.symbol.upper())
@@ -185,4 +231,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
