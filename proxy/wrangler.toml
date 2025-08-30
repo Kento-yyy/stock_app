@@ -1,0 +1,9 @@
+name = "stock-proxy"
+main = "worker.js"
+compatibility_date = "2024-04-19"
+
+[[d1_databases]]
+# Replace with your actual D1 database name and ID
+binding = "DB"
+database_name = "stock-db"
+database_id = "00000000-0000-0000-0000-000000000000"
