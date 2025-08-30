@@ -103,18 +103,11 @@
           });
         });
       };
-      function parseCSV(text){
-        return text.trim().split(/\r?\n/).slice(1).map(function(line){
-          var parts = line.split(',');
-          return { symbol: (parts[0] || '').trim(), shares: parseFloat(parts[1] || '0') };
-        }).filter(function(r){ return r.symbol; });
-      }
       window.loadPortfolio = async function(){
         if (window.__pfLoaded) return;
         try{
-          var res = await fetch('portfolio.csv');
-          var txt = await res.text();
-          var rows = parseCSV(txt);
+          var res = await fetch('/api/portfolio');
+          var rows = await res.json();
           var jpyBody = document.querySelector('#pf-table-jpy tbody');
           var usdBody = document.querySelector('#pf-table-usd tbody');
           rows.forEach(function(r){

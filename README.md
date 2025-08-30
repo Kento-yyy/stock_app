@@ -1,5 +1,5 @@
 **概要**
-- ポートフォリオCSVを読み込み、現在価格で評価額を計算します。
+- Cloudflare D1 データベースに保存したポートフォリオを API 経由で取得し、現在価格で評価額を計算します。
 - 価格取得は Alpha Vantage API または yfinance を使用できます（既定は yfinance）。
 
 **ファイル構成**
@@ -16,10 +16,9 @@
 **セットアップ**
 - 設定ファイルを作成/編集:
   - `config.json` を編集（価格プロバイダ等を設定）
-- ポートフォリオCSVを作成:
-  - 既存の `portfolio.csv` を編集
-  - ヘッダは `symbol,shares`（任意で `currency` を追加）
-  - 例: `AAPL,10,USD` / `7203.T,5,JPY`
+- Cloudflare D1 にポートフォリオDBを作成:
+  - `schema.sql` を用いて `holdings` テーブルを作成
+  - `symbol,shares,currency` を登録
 - 機密情報は環境変数でも上書き可能:
   - `PN_ALPHA_VANTAGE_KEY` … Alpha Vantage APIキー
 
@@ -34,11 +33,11 @@
 
 **実行**
 - 標準出力に結果表示:
-  - `python3 portfolio_notify.py --config config.json --portfolio portfolio.csv`
+  - `python3 portfolio_notify.py --config config.json --portfolio-url https://<worker>/api/portfolio`
 
 
 **混在ポートフォリオ（米国株+日本株）**
-- `portfolio.csv` に `currency` 列を追加すると、銘柄ごとに通貨を指定できます（`USD` または `JPY`）。
+- DB の `currency` 列で銘柄ごとに通貨を指定できます（`USD` または `JPY`）。
 - レポートは以下の列順で表示します:
   - `SYMBOL`, `SHARES`, `USD_PRICE`, `USD_VALUE`, `JPY_PRICE`, `JPY_VALUE`
 - 為替レートは Alpha Vantage の `CURRENCY_EXCHANGE_RATE` を使用（USD→JPYを1回取得）。
@@ -52,7 +51,7 @@
 **自動実行（cronの例）**
 - 毎営業日 16:30 に実行して標準出力/HTML保存:
   - `crontab -e`
-  - 例: `30 16 * * 1-5 PN_ALPHA_VANTAGE_KEY=... /usr/bin/python3 /path/to/portfolio_notify.py --config /path/to/config.json --portfolio /path/to/portfolio.csv --save-html /path/to/report.html`
+  - 例: `30 16 * * 1-5 PN_ALPHA_VANTAGE_KEY=... /usr/bin/python3 /path/to/portfolio_notify.py --config /path/to/config.json --portfolio-url https://<worker>/api/portfolio --save-html /path/to/report.html`
 
 **制限・拡張**
 - 現在は通貨換算を行わず、各銘柄のクォート通貨で集計します（USD等）。
@@ -104,8 +103,7 @@
 - `service-worker.js` — オフライン用の Service Worker
 - `manifest.webmanifest` — PWA 用マニフェスト
 - `proxy/worker.js` — Cloudflare Workers 用プロキシ API (任意)
-- `portfolio.csv` — 銘柄と保有株数を CSV で管理するファイル。`report.html` と `portfolio.html` で読み込まれます
-- `portfolio.html` — `portfolio.csv` を読み込んで表示する簡易ページ
+- `portfolio.html` — API から取得したポートフォリオを表示する簡易ページ
 
 
 ## 使い方

@@ -5,7 +5,32 @@ export default {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: corsHeaders() });
       }
-      if (url.pathname === '/' || url.pathname.startsWith('/quote')) {
+      if (url.pathname === '/api/portfolio') {
+        if (request.method === 'GET') {
+          const { results } = await env.DB.prepare(
+            'SELECT symbol, shares, currency FROM holdings ORDER BY symbol'
+          ).all();
+          return json(results);
+        } else if (request.method === 'POST') {
+          const body = await request.json();
+          const sym = String(body.symbol || '').trim();
+          const shares = Number(body.shares);
+          const cur = body.currency ? String(body.currency).trim() : null;
+          if (!sym) return json({ error: 'symbol required' }, 400);
+          await env.DB.prepare(
+            'INSERT OR REPLACE INTO holdings(symbol, shares, currency) VALUES(?,?,?)'
+          ).bind(sym, shares, cur).run();
+          return json({ ok: true });
+        } else if (request.method === 'DELETE') {
+          const sym = url.searchParams.get('symbol');
+          if (!sym) return json({ error: 'symbol required' }, 400);
+          await env.DB.prepare('DELETE FROM holdings WHERE symbol = ?')
+            .bind(sym)
+            .run();
+          return json({ ok: true });
+        }
+        return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,DELETE,OPTIONS' });
+      } else if (url.pathname === '/' || url.pathname.startsWith('/quote')) {
         const symsParam = url.searchParams.get('symbols')
           || url.searchParams.get('s')
           || url.searchParams.get('symbol')
@@ -180,13 +205,14 @@ export default {
     } catch (e) {
       return json({ error: 'server error', detail: String(e) }, 500);
     }
+    return json({ error: 'not found' }, 404);
   }
 };
 
 function corsHeaders(extra = {}) {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization',
     'Content-Type': 'application/json; charset=utf-8',
     ...extra
