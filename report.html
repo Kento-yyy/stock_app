@@ -24,6 +24,10 @@
       .down { color:#c00; }
       .table-wrap { overflow-x: auto; }
       .co { color:#444; font-size:12px; margin-left:6px; }
+      /* Allow wrapping only on SYMBOL/TYPE columns so names fit */
+      table.pf-table th:first-child,
+      table.pf-table td:first-child { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+      table.pf-table td:first-child .co { white-space: normal; }
     </style>
 <script>
     (function(){
