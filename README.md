@@ -7,6 +7,8 @@
 - `service-worker.js` — オフライン用の Service Worker
 - `manifest.webmanifest` — PWA 用マニフェスト
 - `proxy/worker.js` — Cloudflare Workers 用プロキシ API (任意)
+- `portfolio.csv` — ポートフォリオデータのサンプル CSV
+- `portfolio.html` — `portfolio.csv` を読み込んで表示するシンプルなページ
 
 ## 使い方
 1. GitHub Pages など任意の静的ホスティングに本リポジトリを配置します。
