@@ -842,8 +842,12 @@
     <tbody></tbody>
   </table>
   <p class="muted">注: DBに保存された基準値から算出（JPYベース）。?api= でWorkerを指定すると表示されます。</p>
-  <div style="margin:6px 0 20px;">
-    <button id="db-snap-refresh">DBスナップショット更新</button>
+  <div style="margin:6px 0 20px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <button id="db-snap-refresh">スナップショット再読込</button>
+    <button id="db-refresh-current">現在値のみ更新</button>
+    <button id="db-refresh-baselines">基準値のみ更新</button>
+    <button id="db-refresh-both">現在値+基準値更新</button>
+    <span class="muted" id="db-refresh-status"></span>
   </div>
   
   <script>
@@ -856,6 +860,17 @@
           if (ls) return ls.replace(/\/$/, '');
         }catch(e){}
         return null;
+      }
+      function getWorkerBase(){
+        var b = getApiBase();
+        if (!b) return null;
+        try{
+          var u = new URL(b, location.origin);
+          if (/\/quote(\/.+)?$/i.test(u.pathname)){
+            u.pathname = u.pathname.replace(/\/quote(\/.+)?$/i, '/');
+          }
+          return u.toString().replace(/\/$/, '');
+        }catch(_){ return b.replace(/\/quote(\/.+)?$/i, ''); }
       }
       function pct(from, to){
         var a = Number(from), b = Number(to);
@@ -887,6 +902,7 @@
           var res = await fetch(url);
           if (!res.ok) throw new Error('HTTP '+res.status);
           var rows = await res.json();
+          if (!Array.isArray(rows)) throw new Error('invalid response');
           var tbody = document.querySelector('#db-snapshot tbody');
           if (!tbody) return;
           tbody.innerHTML='';
@@ -915,6 +931,29 @@
       window.loadDbSnapshot = loadDbSnapshot;
       var btn = document.getElementById('db-snap-refresh');
       if (btn) btn.addEventListener('click', function(){ loadDbSnapshot(); });
+
+      async function doCall(path){
+        var base = getWorkerBase();
+        var status = document.getElementById('db-refresh-status');
+        if (!base){ if(status) status.textContent = 'API未指定(?api=...)'; return; }
+        try{
+          if(status) status.textContent = '実行中...';
+          var r = await fetch(base + path, { method: 'POST' });
+          var t = await r.text();
+          if(!r.ok) throw new Error('HTTP '+r.status+' '+t);
+          if(status) status.textContent = 'OK: ' + t;
+          await loadDbSnapshot();
+        }catch(e){ if(status) status.textContent = '失敗: ' + e; }
+      }
+      var b1 = document.getElementById('db-refresh-current');
+      if (b1) b1.addEventListener('click', function(){ doCall('/api/quotes/refresh-current'); });
+      var b2 = document.getElementById('db-refresh-baselines');
+      if (b2) b2.addEventListener('click', function(){ doCall('/api/quotes/refresh-baselines'); });
+      var b3 = document.getElementById('db-refresh-both');
+      if (b3) b3.addEventListener('click', async function(){
+        await doCall('/api/quotes/refresh-current');
+        await doCall('/api/quotes/refresh-baselines');
+      });
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadDbSnapshot); else loadDbSnapshot();
     })();
   </script>
