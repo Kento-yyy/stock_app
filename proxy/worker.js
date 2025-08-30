@@ -19,6 +19,7 @@ export default {
           try {
             const { results } = await env.DB.prepare(
               'SELECT symbol, price, currency, jpy, updated_at, ' +
+              'price_1d, jpy_1d, updated_1d_at, ' +
               'price_1m, jpy_1m, updated_1m_at, ' +
               'price_3m, jpy_3m, updated_3m_at, ' +
               'price_6m, jpy_6m, updated_6m_at, ' +
@@ -63,6 +64,7 @@ export default {
                     q.jpy,
                     q.currency AS price_currency,
                     q.updated_at,
+                    q.price_1d, q.jpy_1d, q.updated_1d_at,
                     q.price_1m, q.jpy_1m, q.updated_1m_at,
                     q.price_3m, q.jpy_3m, q.updated_3m_at,
                     q.price_6m, q.jpy_6m, q.updated_6m_at,
@@ -693,6 +695,7 @@ async function fetchYahooBaselines(symbols) {
 async function ensureQuotesSchema(env){
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
+    'price_1d REAL, jpy_1d REAL, updated_1d_at TEXT, ' +
     'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
     'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
     'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
@@ -700,6 +703,9 @@ async function ensureQuotesSchema(env){
     'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
   ).run();
   const addCols = [
+    "ALTER TABLE quotes ADD COLUMN price_1d REAL",
+    "ALTER TABLE quotes ADD COLUMN jpy_1d REAL",
+    "ALTER TABLE quotes ADD COLUMN updated_1d_at TEXT",
     "ALTER TABLE quotes ADD COLUMN price_1m REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_1m REAL",
     "ALTER TABLE quotes ADD COLUMN updated_1m_at TEXT",
@@ -761,10 +767,20 @@ async function refreshCurrent(env, request){
     const p = Number(q.regularMarketPrice); if (!Number.isFinite(p)) continue;
     const cur = String(q.currency || '').toUpperCase() || null;
     let jpy = null; if (cur === 'JPY' || /\.T$/i.test(s)) jpy = p; else if (cur === 'USD' && Number.isFinite(usdJpy)) jpy = p * usdJpy;
+    // 1D baselines from prevClose if available
+    let p1d = null, j1d = null;
+    const prev = Number(q.prevClose);
+    if (Number.isFinite(prev)) {
+      p1d = prev;
+      if (cur === 'JPY' || /\.T$/i.test(s)) j1d = prev; else if (cur === 'USD' && Number.isFinite(usdJpy)) j1d = prev * usdJpy;
+    }
     await env.DB.prepare(
-      'INSERT INTO quotes(symbol, price, currency, jpy, updated_at) VALUES(?,?,?,?,?) ' +
-      'ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, updated_at=excluded.updated_at'
-    ).bind(s, p, cur, jpy, now).run();
+      'INSERT INTO quotes(symbol, price, currency, jpy, updated_at, price_1d, jpy_1d, updated_1d_at) VALUES(?,?,?,?,?,?,?,?) ' +
+      'ON CONFLICT(symbol) DO UPDATE SET ' +
+      'price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, updated_at=excluded.updated_at, ' +
+      'price_1d=COALESCE(excluded.price_1d, price_1d), jpy_1d=COALESCE(excluded.jpy_1d, jpy_1d), ' +
+      'updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END'
+    ).bind(s, p, cur, jpy, now, Number.isFinite(p1d)? p1d : null, Number.isFinite(j1d)? j1d : null, Number.isFinite(p1d)? now : null).run();
     updated++;
   }
   return { updated };

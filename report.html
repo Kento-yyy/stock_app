@@ -141,7 +141,7 @@
         if (window.__pfSetupDone) return;
         window.__pfSetupDone = true;
         if (window.attachSortHandlers) window.attachSortHandlers();
-        // Initial sort: JPY_VALUE (col 5) descending for both tables when monthly view is not used
+        // Initial sort: JPY_VALUE descending for both tables when monthly view is not used
         try{
           var tables = document.querySelectorAll('table.pf-table');
           tables.forEach(function(t){
@@ -149,11 +149,13 @@
             if (hasBody && t.querySelectorAll('tbody.month-body').length === 0){
               // Clear existing indicators on initial, set desc on JPY_VALUE
               var ths = t.tHead && t.tHead.rows.length ? t.tHead.rows[0].cells : null;
-              if (ths && ths.length > 12){
+              var idxMap = headerIndexMap(t);
+              var jIdx = idxMap['JPY_VALUE'];
+              if (ths && ths.length && jIdx != null){
                 for (var i=0;i<ths.length;i++){ var s = ths[i].querySelector('.sort-indicator'); if(s) s.textContent=''; ths[i].removeAttribute('data-asc'); }
-                ths[12].setAttribute('data-asc','false');
+                ths[jIdx].setAttribute('data-asc','false');
+                sortTableEl(t, jIdx, false); // JPY_VALUE desc
               }
-              sortTableEl(t, 12, false); // JPY_VALUE desc with new indices (PER added)
             }
           });
         } catch(e){}
@@ -216,6 +218,7 @@
             if (keytxt === prefix+'_VALUE') break;
             if (keytxt === 'YOY') { ths[j].setAttribute('data-col', prefix+'_YOY'); colKey[j] = prefix+'_YOY'; continue; }
             if (keytxt === 'MOM') { ths[j].setAttribute('data-col', prefix+'_MOM'); colKey[j] = prefix+'_MOM'; continue; }
+            if (keytxt === '1D') { ths[j].setAttribute('data-col', prefix+'_1D'); colKey[j] = prefix+'_1D'; continue; }
             if (keytxt === 'DOD') { ths[j].setAttribute('data-col', prefix+'_DOD'); colKey[j] = prefix+'_DOD'; continue; }
             if (keytxt === '3M') { ths[j].setAttribute('data-col', prefix+'_3M'); colKey[j] = prefix+'_3M'; continue; }
             if (keytxt === '6M') { ths[j].setAttribute('data-col', prefix+'_6M'); colKey[j] = prefix+'_6M'; continue; }
@@ -537,12 +540,12 @@
             var cellUsdMoM = getCellByKey(tr,'USD_MOM');
             var cellUsd3M = getCellByKey(tr,'USD_3M');
             var cellUsd6M = getCellByKey(tr,'USD_6M');
-            var cellUsdDoD = getCellByKey(tr,'USD_DOD');
+            var cellUsd1D = getCellByKey(tr,'USD_1D') || getCellByKey(tr,'USD_DOD');
             var cellJpyYoY = getCellByKey(tr,'JPY_YOY');
             var cellJpyMoM = getCellByKey(tr,'JPY_MOM');
             var cellJpy3M = getCellByKey(tr,'JPY_3M');
             var cellJpy6M = getCellByKey(tr,'JPY_6M');
-            var cellJpyDoD = getCellByKey(tr,'JPY_DOD');
+            var cellJpy1D = getCellByKey(tr,'JPY_1D') || getCellByKey(tr,'JPY_DOD');
             if (isFinite(priceUsd) || isFinite(priceJpy)) {
               console.log('Price for ' + sym + ': USD=' + priceUsd + ', JPY=' + priceJpy);
             }
@@ -609,7 +612,7 @@
               setPctCell(cellUsdMoM, usdMoM);
               setPctCell(cellUsd3M, usd3M);
               setPctCell(cellUsd6M, usd6M);
-              setPctCell(cellUsdDoD, usdDoD);
+              setPctCell(cellUsd1D, usdDoD);
             }
             // JPY block
             if (isFinite(priceJpy)){
@@ -654,7 +657,7 @@
               setPctCell(cellJpyMoM, jpyMoM);
               setPctCell(cellJpy3M, jpy3M);
               setPctCell(cellJpy6M, jpy6M);
-              setPctCell(cellJpyDoD, jpyDoD);
+              setPctCell(cellJpy1D, jpyDoD);
             }
             if(cellUsdV){ var v = numberFromCell(cellUsdV); if(isFinite(v)) sumUsd += v; }
             if(cellJpyV){ var w = numberFromCell(cellJpyV); if(isFinite(w)) sumJpy += w; }
@@ -798,7 +801,25 @@
 <h3>国内株</h3>
 <div class="table-wrap">
 <table class="pf-table" id="pf-table-jpy">
-<colgroup><col style="width:28%"/><col style="width:5%"/><col style="width:5%"/><col style="width:7%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:9%"/><col style="width:7%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:9%"/></colgroup>
+<colgroup>
+<col style="width:26%"/>
+<col style="width:5%"/>
+<col style="width:5%"/>
+<col style="width:6%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:8%"/>
+<col style="width:6%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:8%"/>
+</colgroup>
 <thead>
 <tr>
 <th style="text-align:left">SYMBOL<span class="sort-indicator"></span></th>
@@ -809,14 +830,14 @@
 <th>MoM<span class="sort-indicator"></span></th>
 <th>3M<span class="sort-indicator"></span></th>
 <th>6M<span class="sort-indicator"></span></th>
-<th>DoD<span class="sort-indicator"></span></th>
+<th>1D<span class="sort-indicator"></span></th>
 <th>USD_VALUE<span class="sort-indicator"></span></th>
 <th>JPY_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
 <th>3M<span class="sort-indicator"></span></th>
 <th>6M<span class="sort-indicator"></span></th>
-<th>DoD<span class="sort-indicator"></span></th>
+<th>1D<span class="sort-indicator"></span></th>
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
 </thead>
@@ -829,7 +850,25 @@
 <h3>米国株</h3>
 <div class="table-wrap">
 <table class="pf-table" id="pf-table-usd">
-<colgroup><col style="width:28%"/><col style="width:5%"/><col style="width:5%"/><col style="width:7%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:9%"/><col style="width:7%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:9%"/></colgroup>
+<colgroup>
+<col style="width:26%"/>
+<col style="width:5%"/>
+<col style="width:5%"/>
+<col style="width:6%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:8%"/>
+<col style="width:6%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:8%"/>
+</colgroup>
 <thead>
 <tr>
 <th style="text-align:left">SYMBOL<span class="sort-indicator"></span></th>
@@ -840,14 +879,14 @@
 <th>MoM<span class="sort-indicator"></span></th>
 <th>3M<span class="sort-indicator"></span></th>
 <th>6M<span class="sort-indicator"></span></th>
-<th>DoD<span class="sort-indicator"></span></th>
+<th>1D<span class="sort-indicator"></span></th>
 <th>USD_VALUE<span class="sort-indicator"></span></th>
 <th>JPY_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
 <th>3M<span class="sort-indicator"></span></th>
 <th>6M<span class="sort-indicator"></span></th>
-<th>DoD<span class="sort-indicator"></span></th>
+<th>1D<span class="sort-indicator"></span></th>
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
 </thead>
@@ -860,7 +899,25 @@
 <h3>全体合計</h3>
 <div class="table-wrap">
 <table class="pf-table pf-total" id="pf-total">
-<colgroup><col style="width:28%"/><col style="width:5%"/><col style="width:5%"/><col style="width:7%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:9%"/><col style="width:7%"/><col style="width:5%"/><col style="width:5%"/><col style="width:5%"/><col style="width:9%"/></colgroup>
+<colgroup>
+<col style="width:26%"/>
+<col style="width:5%"/>
+<col style="width:5%"/>
+<col style="width:6%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:8%"/>
+<col style="width:6%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:3%"/>
+<col style="width:8%"/>
+</colgroup>
 <thead>
 <tr>
 <th style="text-align:left">TYPE<span class="sort-indicator"></span></th>
@@ -869,12 +926,12 @@
 <th>USD_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
-<th>DoD<span class="sort-indicator"></span></th>
+<th>1D<span class="sort-indicator"></span></th>
 <th>USD_VALUE<span class="sort-indicator"></span></th>
 <th>JPY_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
-<th>DoD<span class="sort-indicator"></span></th>
+<th>1D<span class="sort-indicator"></span></th>
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
 </thead>
@@ -889,15 +946,16 @@
 <div class="table-wrap" id="db-snap-wrap" style="display:none">
   <table class="pf-table" id="db-snapshot">
     <colgroup>
-      <col style="width:30%"/>
+      <col style="width:28%"/>
       <col style="width:7%"/>
       <col style="width:6%"/>
       <col style="width:9%"/>
       <col style="width:9%"/>
-      <col style="width:7%"/>
-      <col style="width:7%"/>
-      <col style="width:7%"/>
-      <col style="width:7%"/>
+      <col style="width:6%"/>
+      <col style="width:6%"/>
+      <col style="width:6%"/>
+      <col style="width:6%"/>
+      <col style="width:6%"/>
       <col style="width:6%"/>
       <col style="width:5%"/>
     </colgroup>
@@ -908,6 +966,7 @@
         <th>CCY</th>
         <th>PRICE</th>
         <th>JPY</th>
+        <th>1D</th>
         <th>1M</th>
         <th>3M</th>
         <th>6M</th>
@@ -1001,6 +1060,7 @@
             tr.appendChild(td(ccy));
             tr.appendChild(td(isFinite(r.price)? Number(r.price).toFixed(2): ''));
             tr.appendChild(td(isFinite(r.jpy)? Math.round(Number(r.jpy)).toLocaleString(): ''));
+            tr.appendChild(tdPct(pct(r.jpy_1d, Number(r.jpy))));
             var p = Number(r.jpy);
             tr.appendChild(tdPct(pct(r.jpy_1m, p)));
             tr.appendChild(tdPct(pct(r.jpy_3m, p)));
