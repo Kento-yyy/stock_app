@@ -7,6 +7,8 @@
 - `service-worker.js` — オフライン用の Service Worker
 - `manifest.webmanifest` — PWA 用マニフェスト
 - `proxy/worker.js` — Cloudflare Workers 用プロキシ API (任意)
+- `portfolio.csv` — 銘柄と保有株数を CSV で管理するファイル。`report.html` と `portfolio.html` で読み込まれます
+- `portfolio.html` — `portfolio.csv` を読み込んで表示する簡易ページ
 
 ## 使い方
 1. GitHub Pages など任意の静的ホスティングに本リポジトリを配置します。
