@@ -129,7 +129,7 @@
             tdShares.setAttribute('data-value', isFinite(r.shares)? String(r.shares): '');
             tdShares.textContent = isFinite(r.shares)? String(r.shares): '';
             tr.appendChild(tdShares);
-            for(var i=0;i<11;i++){ var td=document.createElement('td'); td.setAttribute('data-value',''); tr.appendChild(td); }
+            for(var i=0;i<15;i++){ var td=document.createElement('td'); td.setAttribute('data-value',''); tr.appendChild(td); }
             if (/\.T$/i.test(r.symbol)) { if(jpyBody) jpyBody.appendChild(tr); }
             else { if(usdBody) usdBody.appendChild(tr); }
           });
@@ -207,18 +207,22 @@
         // Disambiguate YoY/MoM/DoD for USD and JPY blocks based on position after *_PRICE
         var norm = [];
         for (var i=0;i<ths.length;i++){ norm[i] = (ths[i].textContent||'').toUpperCase().replace(/[\s▲▼]/g,''); }
-        var idxUsdP = norm.indexOf('USD_PRICE');
-        if (idxUsdP >= 0){
-          if (ths[idxUsdP+1]) { ths[idxUsdP+1].setAttribute('data-col','USD_YOY'); colKey[idxUsdP+1] = 'USD_YOY'; }
-          if (ths[idxUsdP+2]) { ths[idxUsdP+2].setAttribute('data-col','USD_MOM'); colKey[idxUsdP+2] = 'USD_MOM'; }
-          if (ths[idxUsdP+3]) { ths[idxUsdP+3].setAttribute('data-col','USD_DOD'); colKey[idxUsdP+3] = 'USD_DOD'; }
+        function tagAfterPrice(prefix){
+          var pIdx = norm.indexOf(prefix+'_PRICE');
+          if (pIdx < 0) return;
+          // scan until *_VALUE or end
+          for (var j = pIdx + 1; j < ths.length; j++){
+            var keytxt = (ths[j].textContent||'').toUpperCase().replace(/[\s▲▼]/g,'');
+            if (keytxt === prefix+'_VALUE') break;
+            if (keytxt === 'YOY') { ths[j].setAttribute('data-col', prefix+'_YOY'); colKey[j] = prefix+'_YOY'; continue; }
+            if (keytxt === 'MOM') { ths[j].setAttribute('data-col', prefix+'_MOM'); colKey[j] = prefix+'_MOM'; continue; }
+            if (keytxt === 'DOD') { ths[j].setAttribute('data-col', prefix+'_DOD'); colKey[j] = prefix+'_DOD'; continue; }
+            if (keytxt === '3M') { ths[j].setAttribute('data-col', prefix+'_3M'); colKey[j] = prefix+'_3M'; continue; }
+            if (keytxt === '6M') { ths[j].setAttribute('data-col', prefix+'_6M'); colKey[j] = prefix+'_6M'; continue; }
+          }
         }
-        var idxJpyP = norm.indexOf('JPY_PRICE');
-        if (idxJpyP >= 0){
-          if (ths[idxJpyP+1]) { ths[idxJpyP+1].setAttribute('data-col','JPY_YOY'); colKey[idxJpyP+1] = 'JPY_YOY'; }
-          if (ths[idxJpyP+2]) { ths[idxJpyP+2].setAttribute('data-col','JPY_MOM'); colKey[idxJpyP+2] = 'JPY_MOM'; }
-          if (ths[idxJpyP+3]) { ths[idxJpyP+3].setAttribute('data-col','JPY_DOD'); colKey[idxJpyP+3] = 'JPY_DOD'; }
-        }
+        tagAfterPrice('USD');
+        tagAfterPrice('JPY');
         function tagRow(row){
           if(!row) return;
           for (var i=0;i<row.cells.length;i++){
@@ -531,9 +535,13 @@
             var cellJpyV = getCellByKey(tr,'JPY_VALUE') || tr.cells[colJpyV];
             var cellUsdYoY = getCellByKey(tr,'USD_YOY');
             var cellUsdMoM = getCellByKey(tr,'USD_MOM');
+            var cellUsd3M = getCellByKey(tr,'USD_3M');
+            var cellUsd6M = getCellByKey(tr,'USD_6M');
             var cellUsdDoD = getCellByKey(tr,'USD_DOD');
             var cellJpyYoY = getCellByKey(tr,'JPY_YOY');
             var cellJpyMoM = getCellByKey(tr,'JPY_MOM');
+            var cellJpy3M = getCellByKey(tr,'JPY_3M');
+            var cellJpy6M = getCellByKey(tr,'JPY_6M');
             var cellJpyDoD = getCellByKey(tr,'JPY_DOD');
             if (isFinite(priceUsd) || isFinite(priceJpy)) {
               console.log('Price for ' + sym + ': USD=' + priceUsd + ', JPY=' + priceJpy);
@@ -544,6 +552,7 @@
               var usdDoD = q && q.usdDoD;
               var usdMoM = q && q.usdMoM;
               var usdYoY = q && q.usdYoY;
+              var usd3M, usd6M;
               if (!(isFinite(usdDoD))) {
                 var prevUsd1 = undefined;
                 if (q) {
@@ -566,6 +575,13 @@
                 }
                 if (isFinite(prevUsd30) && prevUsd30>0) usdMoM = (priceUsd - prevUsd30)/prevUsd30;
               }
+              // 3M/6M from Yahoo baselines when available
+              var prevUsd90 = (q && q.prevClose90d);
+              var prevUsd180 = (q && q.prevClose180d);
+              if (!isFinite(prevUsd90) && q && isFinite(q.prevJpy90d) && isFinite(usdJpy)) prevUsd90 = q.prevJpy90d / usdJpy;
+              if (!isFinite(prevUsd180) && q && isFinite(q.prevJpy180d) && isFinite(usdJpy)) prevUsd180 = q.prevJpy180d / usdJpy;
+              if (isFinite(prevUsd90) && prevUsd90>0) usd3M = (priceUsd - prevUsd90)/prevUsd90;
+              if (isFinite(prevUsd180) && prevUsd180>0) usd6M = (priceUsd - prevUsd180)/prevUsd180;
               if (!(isFinite(usdYoY))) {
                 var prevUsd365 = undefined;
                 if (q) {
@@ -586,12 +602,21 @@
                   if (!isFinite(usdYoY) && isFinite(cq.usdYoY)) usdYoY = cq.usdYoY;
                 }catch(_){ }
               }
+              // Write USD cells
+              setNumCell(cellUsdP, priceUsd, 'USD', 2);
+              if (cellUsdV && isFinite(priceUsd) && isFinite(shares)) setNumCell(cellUsdV, priceUsd*shares, 'USD', 2);
+              setPctCell(cellUsdYoY, usdYoY);
+              setPctCell(cellUsdMoM, usdMoM);
+              setPctCell(cellUsd3M, usd3M);
+              setPctCell(cellUsd6M, usd6M);
+              setPctCell(cellUsdDoD, usdDoD);
             }
             // JPY block
             if (isFinite(priceJpy)){
               var jpyDoD = q && q.jpyDoD;
               var jpyMoM = q && q.jpyMoM;
               var jpyYoY = q && q.jpyYoY;
+              var jpy3M, jpy6M;
               if (!(isFinite(jpyDoD))) {
                 var prevJ1 = q && (q.prevJpy);
                 if (!isFinite(prevJ1) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ1 = q.prevClose;
@@ -602,6 +627,13 @@
                 if (!isFinite(prevJ30) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ30 = q.prevClose30d;
                 if (isFinite(prevJ30) && prevJ30>0) jpyMoM = (priceJpy - prevJ30)/prevJ30;
               }
+              // 3M/6M from Yahoo baselines when available (JPY domain)
+              var prevJ90 = (q && q.prevJpy90d);
+              var prevJ180 = (q && q.prevJpy180d);
+              if (!isFinite(prevJ90)) prevJ90 = (q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) ? q.prevClose90d : (isFinite(usdJpy) && isFinite(q && q.prevClose90d) ? (q.prevClose90d*usdJpy) : undefined);
+              if (!isFinite(prevJ180)) prevJ180 = (q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) ? q.prevClose180d : (isFinite(usdJpy) && isFinite(q && q.prevClose180d) ? (q.prevClose180d*usdJpy) : undefined);
+              if (isFinite(prevJ90) && prevJ90>0) jpy3M = (priceJpy - prevJ90)/prevJ90;
+              if (isFinite(prevJ180) && prevJ180>0) jpy6M = (priceJpy - prevJ180)/prevJ180;
               if (!(isFinite(jpyYoY))) {
                 var prevJ365 = q && (q.prevJpy365d);
                 if (!isFinite(prevJ365) && q && ((q.currency||'').toUpperCase()==='JPY' || /\.T$/i.test(sym))) prevJ365 = q.prevClose365d;
@@ -615,6 +647,14 @@
                   if (!isFinite(jpyYoY) && isFinite(cq2.jpyYoY)) jpyYoY = cq2.jpyYoY;
                 }catch(_){ }
               }
+              // Write JPY cells
+              setNumCell(cellJpyP, priceJpy, 'JPY', 0);
+              if (cellJpyV && isFinite(priceJpy) && isFinite(shares)) setNumCell(cellJpyV, priceJpy*shares, 'JPY', 0);
+              setPctCell(cellJpyYoY, jpyYoY);
+              setPctCell(cellJpyMoM, jpyMoM);
+              setPctCell(cellJpy3M, jpy3M);
+              setPctCell(cellJpy6M, jpy6M);
+              setPctCell(cellJpyDoD, jpyDoD);
             }
             if(cellUsdV){ var v = numberFromCell(cellUsdV); if(isFinite(v)) sumUsd += v; }
             if(cellJpyV){ var w = numberFromCell(cellJpyV); if(isFinite(w)) sumJpy += w; }
@@ -624,6 +664,8 @@
             var tfr = table.tFoot.rows[0];
             var tfUsd = (tfr && (tfr.querySelector('td[data-col="USD_VALUE"]') || tfr.cells[colUsdV])) || null;
             var tfJpy = (tfr && (tfr.querySelector('td[data-col="JPY_VALUE"]') || tfr.cells[colJpyV])) || null;
+            if (tfUsd) setNumCell(tfUsd, sumUsd, 'USD', 2);
+            if (tfJpy) setNumCell(tfJpy, sumJpy, 'JPY', 0);
           }
           // accumulate global totals (skip tables without rows)
           if (rows && rows.length) {
@@ -655,6 +697,8 @@
             var idx2 = headerIndexMap(tot);
             if (!tfUsd2 && idx2['USD_VALUE']!=null) tfUsd2 = tfr2.cells[idx2['USD_VALUE']];
             if (!tfJpy2 && idx2['JPY_VALUE']!=null) tfJpy2 = tfr2.cells[idx2['JPY_VALUE']];
+            if (tfUsd2) setNumCell(tfUsd2, totalUsdAll, 'USD', 2);
+            if (tfJpy2) setNumCell(tfJpy2, totalJpyAll, 'JPY', 0);
           }
         } catch(e){}
       }
@@ -763,11 +807,15 @@
 <th>USD_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
+<th>3M<span class="sort-indicator"></span></th>
+<th>6M<span class="sort-indicator"></span></th>
 <th>DoD<span class="sort-indicator"></span></th>
 <th>USD_VALUE<span class="sort-indicator"></span></th>
 <th>JPY_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
+<th>3M<span class="sort-indicator"></span></th>
+<th>6M<span class="sort-indicator"></span></th>
 <th>DoD<span class="sort-indicator"></span></th>
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
@@ -790,11 +838,15 @@
 <th>USD_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
+<th>3M<span class="sort-indicator"></span></th>
+<th>6M<span class="sort-indicator"></span></th>
 <th>DoD<span class="sort-indicator"></span></th>
 <th>USD_VALUE<span class="sort-indicator"></span></th>
 <th>JPY_PRICE<span class="sort-indicator"></span></th>
 <th>YoY<span class="sort-indicator"></span></th>
 <th>MoM<span class="sort-indicator"></span></th>
+<th>3M<span class="sort-indicator"></span></th>
+<th>6M<span class="sort-indicator"></span></th>
 <th>DoD<span class="sort-indicator"></span></th>
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
