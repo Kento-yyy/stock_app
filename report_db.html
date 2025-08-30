@@ -86,11 +86,33 @@
     }
 
     function computeFx(quotesMap){
-      var fx = NaN;
+      // 1) Prefer explicit USDJPY=X from DB (price column)
       var q = quotesMap['USDJPY=X'];
-      if (q && Number.isFinite(q.price)) fx = Number(q.price);
-      if (Number.isFinite(fx) && fx > 0 && fx < 1) fx = 1 / fx; // invert if needed
-      return Number.isFinite(fx) && fx > 0 ? fx : NaN;
+      var fx = NaN;
+      if (q && Number.isFinite(Number(q.price))) fx = Number(q.price);
+      if (Number.isFinite(fx) && fx > 0 && fx < 1) fx = 1 / fx;
+      if (Number.isFinite(fx) && fx > 0) return fx;
+      // 2) Derive from any USD-quoted asset: fx ~= jpy / usd
+      var vals = [];
+      for (var k in quotesMap){
+        var row = quotesMap[k]; if (!row) continue;
+        var cur = String(row.currency || '').toUpperCase();
+        var usd = Number(row.usd);
+        var jpy = Number(row.jpy);
+        var native = Number(row.price);
+        // If DB didn't populate usd, but native price exists and currency is USD, treat native as usd
+        if (!Number.isFinite(usd) && cur === 'USD' && Number.isFinite(native)) usd = native;
+        if (cur === 'USD' && Number.isFinite(usd) && Number.isFinite(jpy) && usd > 0){
+          vals.push(jpy / usd);
+        }
+      }
+      if (vals.length){
+        // median for robustness
+        vals.sort(function(a,b){ return a-b; });
+        var mid = Math.floor(vals.length/2);
+        fx = (vals.length % 2 ? vals[mid] : (vals[mid-1] + vals[mid]) / 2);
+      }
+      return (Number.isFinite(fx) && fx > 0) ? fx : NaN;
     }
 
     function buildMaps(holdings, quotes){
@@ -106,6 +128,11 @@
       // Prefer DB-provided USD/JPY values directly
       var usdNow = parseNum(q && q.usd);
       var jpyNow = parseNum(q && q.jpy);
+      // Fallback: when missing, use native price based on currency
+      var cur = String((q && q.currency) || '').toUpperCase();
+      var native = parseNum(q && q.price);
+      if (!Number.isFinite(usdNow) && cur === 'USD' && Number.isFinite(native)) usdNow = native;
+      if (!Number.isFinite(jpyNow) && (cur === 'JPY' || /\.T$/i.test(sym)) && Number.isFinite(native)) jpyNow = native;
       var usdP = usdNow;
       var jpyP = jpyNow;
       // Graceful fallback with FX only if one side missing
@@ -122,6 +149,13 @@
       var j1d = parseNum(q && q.jpy_1d);
       var j1m = parseNum(q && q.jpy_1m);
       var j1y = parseNum(q && q.jpy_1y);
+      // Fallback: if usd_* missing but native baselines exist and currency is USD, use price_* as usd_* directly
+      var p1d = parseNum(q && q.price_1d);
+      var p1m = parseNum(q && q.price_1m);
+      var p1y = parseNum(q && q.price_1y);
+      if (!Number.isFinite(u1d) && cur === 'USD' && Number.isFinite(p1d)) u1d = p1d;
+      if (!Number.isFinite(u1m) && cur === 'USD' && Number.isFinite(p1m)) u1m = p1m;
+      if (!Number.isFinite(u1y) && cur === 'USD' && Number.isFinite(p1y)) u1y = p1y;
       var usd1d = null, usd1m = null, usd1y = null;
       var jpy1d = null, jpy1m = null, jpy1y = null;
       if (Number.isFinite(u1d) && Number.isFinite(usdP)) usd1d = pct(u1d, usdP);
