@@ -509,8 +509,8 @@ async function fetchYahooBaselines(symbols) {
     const v = out[String(s).toUpperCase()] || {};
     return !(Number.isFinite(v.prevClose) && (Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose365d)));
   });
-  const limit = 15; // safe cap for additional per-symbol chart fetches
-  for (let i=0;i<Math.min(limit, missing.length);i++){
+  const limit = Math.min(50, symbols.length); // safe cap respecting Cloudflare subrequest limits
+  for (let i = 0; i < Math.min(limit, missing.length); i++){
     const s = missing[i];
     try{
       const r = await fetchYahooChart(s);
