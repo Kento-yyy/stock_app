@@ -76,131 +76,24 @@ export default {
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
-        // 1) load holdings symbols
-        const { results: holdings } = await env.DB.prepare(
-          'SELECT symbol FROM holdings ORDER BY symbol'
-        ).all();
-        const symbols = Array.from(new Set((holdings || []).map(r => String(r.symbol || '').toUpperCase()).filter(Boolean)));
-        if (!symbols.length) return json({ ok: true, updated: 0, detail: 'no holdings' });
-        // include FX for conversion
-        if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
-
-        // 2) fetch quotes (Yahoo first, fill missing with Stooq)
-        let quotes = {};
-        try { quotes = await fetchYahoo(symbols); } catch (e) {}
-        const missing = symbols.filter(s => !quotes[s]);
-        if (missing.length) {
-          try {
-            const add = await fetchStooq(missing);
-            for (const s of missing) { if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
-          } catch (e) {}
+        // New behavior: run current and baselines refresh sequentially (compat)
+        const a = await refreshCurrent(env, request); // updates price/jpy
+        const b = await refreshBaselines(env, request); // updates 1m/3m/6m/1y/3y
+        return json({ ok: true, updated_current: a.updated, updated_baselines: b.updated });
+      }
+      if (url.pathname === '/api/quotes/refresh-current') {
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
-        // Also fetch baselines (1d/30d/180d/365d)
-        let bases = {};
-        try { bases = await fetchYahooBaselines(symbols.filter(s => s !== 'USDJPY=X')); } catch (e) {}
-        // Normalize currency and compute JPY
-        if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)) {
-          const r = quotes['USDJPY=X'].regularMarketPrice;
-          if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
-          quotes['USDJPY=X'].currency = 'JPY';
+        const r = await refreshCurrent(env, request);
+        return json({ ok: true, updated: r.updated });
+      }
+      if (url.pathname === '/api/quotes/refresh-baselines') {
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
-        for (const s of Object.keys(quotes)) {
-          if (/\.T$/i.test(s)) {
-            quotes[s].currency = 'JPY';
-          }
-        }
-        let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
-        if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
-
-        // 3) ensure table exists (with all baseline columns)
-        await env.DB.prepare(
-          'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
-          'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
-          'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
-          'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
-          'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, ' +
-          'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
-        ).run();
-        // Try to add new columns if table already existed without them
-        const addCols = [
-          "ALTER TABLE quotes ADD COLUMN price_1m REAL",
-          "ALTER TABLE quotes ADD COLUMN jpy_1m REAL",
-          "ALTER TABLE quotes ADD COLUMN updated_1m_at TEXT",
-          "ALTER TABLE quotes ADD COLUMN price_3m REAL",
-          "ALTER TABLE quotes ADD COLUMN jpy_3m REAL",
-          "ALTER TABLE quotes ADD COLUMN updated_3m_at TEXT",
-          "ALTER TABLE quotes ADD COLUMN price_6m REAL",
-          "ALTER TABLE quotes ADD COLUMN jpy_6m REAL",
-          "ALTER TABLE quotes ADD COLUMN updated_6m_at TEXT",
-          "ALTER TABLE quotes ADD COLUMN price_1y REAL",
-          "ALTER TABLE quotes ADD COLUMN jpy_1y REAL",
-          "ALTER TABLE quotes ADD COLUMN updated_1y_at TEXT",
-          "ALTER TABLE quotes ADD COLUMN price_3y REAL",
-          "ALTER TABLE quotes ADD COLUMN jpy_3y REAL",
-          "ALTER TABLE quotes ADD COLUMN updated_3y_at TEXT",
-        ];
-        for (const sql of addCols) {
-          try { await env.DB.prepare(sql).run(); } catch (_) {}
-        }
-
-        // 4) upsert rows
-        const now = new Date().toISOString();
-        let updated = 0;
-        for (const s of symbols) {
-          if (s === 'USDJPY=X') continue;
-          const q = quotes[s];
-          if (!q) continue;
-          const p = Number(q.regularMarketPrice);
-          if (!Number.isFinite(p)) continue;
-          const cur = String(q.currency || '').toUpperCase() || null;
-          let jpy = null;
-          if (cur === 'JPY' || /\.T$/i.test(s)) jpy = p;
-          else if (cur === 'USD' && Number.isFinite(usdJpy)) jpy = p * usdJpy;
-          // baselines
-          const b = bases && bases[s] || {};
-          const b1m = Number(b.prevClose30d);
-          const b3m = Number(b.prevClose90d);
-          const b6m = Number(b.prevClose180d);
-          const b1y = Number(b.prevClose365d);
-          const b3y = Number(b.prevClose1095d);
-          const b1m_jpy = Number.isFinite(b1m) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b1m : (Number.isFinite(usdJpy) ? b1m * usdJpy : null)) : null;
-          const b3m_jpy = Number.isFinite(b3m) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b3m : (Number.isFinite(usdJpy) ? b3m * usdJpy : null)) : null;
-          const b6m_jpy = Number.isFinite(b6m) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b6m : (Number.isFinite(usdJpy) ? b6m * usdJpy : null)) : null;
-          const b1y_jpy = Number.isFinite(b1y) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b1y : (Number.isFinite(usdJpy) ? b1y * usdJpy : null)) : null;
-          const b3y_jpy = Number.isFinite(b3y) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b3y : (Number.isFinite(usdJpy) ? b3y * usdJpy : null)) : null;
-          // Upsert preserving existing baseline values when not available
-          await env.DB.prepare(
-            'INSERT INTO quotes(' +
-              'symbol, price, currency, jpy, updated_at, ' +
-              'price_1m, jpy_1m, updated_1m_at, ' +
-              'price_3m, jpy_3m, updated_3m_at, ' +
-              'price_6m, jpy_6m, updated_6m_at, ' +
-              'price_1y, jpy_1y, updated_1y_at, ' +
-              'price_3y, jpy_3y, updated_3y_at' +
-            ') VALUES(?,?,?,?,?,' +
-                     '?,?,?,' +
-                     '?,?,?,' +
-                     '?,?,?,' +
-                     '?,?,?,' +
-                     '?,?,?' +
-            ') ON CONFLICT(symbol) DO UPDATE SET ' +
-            'price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, updated_at=excluded.updated_at, ' +
-            'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, ' +
-            'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, ' +
-            'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, ' +
-            'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, ' +
-            'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
-          ).bind(
-            s, p, cur, jpy, now,
-            Number.isFinite(b1m) ? b1m : null, b1m_jpy, Number.isFinite(b1m) ? now : null,
-            Number.isFinite(b3m) ? b3m : null, b3m_jpy, Number.isFinite(b3m) ? now : null,
-            Number.isFinite(b6m) ? b6m : null, b6m_jpy, Number.isFinite(b6m) ? now : null,
-            Number.isFinite(b1y) ? b1y : null, b1y_jpy, Number.isFinite(b1y) ? now : null,
-            Number.isFinite(b3y) ? b3y : null, b3y_jpy, Number.isFinite(b3y) ? now : null
-          ).run();
-          updated++;
-        }
-        return json({ ok: true, updated });
+        const r = await refreshBaselines(env, request);
+        return json({ ok: true, updated: r.updated });
       }
       if (url.pathname === '/api/portfolio') {
         if (request.method === 'GET') {
@@ -774,4 +667,160 @@ async function fetchYahooBaselines(symbols) {
     }catch(_){ }
   }
   return out;
+}
+
+// ----------------- Refresh helpers (split current / baselines) -----------------
+async function ensureQuotesSchema(env){
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
+    'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
+    'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
+    'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
+    'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, ' +
+    'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
+  ).run();
+  const addCols = [
+    "ALTER TABLE quotes ADD COLUMN price_1m REAL",
+    "ALTER TABLE quotes ADD COLUMN jpy_1m REAL",
+    "ALTER TABLE quotes ADD COLUMN updated_1m_at TEXT",
+    "ALTER TABLE quotes ADD COLUMN price_3m REAL",
+    "ALTER TABLE quotes ADD COLUMN jpy_3m REAL",
+    "ALTER TABLE quotes ADD COLUMN updated_3m_at TEXT",
+    "ALTER TABLE quotes ADD COLUMN price_6m REAL",
+    "ALTER TABLE quotes ADD COLUMN jpy_6m REAL",
+    "ALTER TABLE quotes ADD COLUMN updated_6m_at TEXT",
+    "ALTER TABLE quotes ADD COLUMN price_1y REAL",
+    "ALTER TABLE quotes ADD COLUMN jpy_1y REAL",
+    "ALTER TABLE quotes ADD COLUMN updated_1y_at TEXT",
+    "ALTER TABLE quotes ADD COLUMN price_3y REAL",
+    "ALTER TABLE quotes ADD COLUMN jpy_3y REAL",
+    "ALTER TABLE quotes ADD COLUMN updated_3y_at TEXT",
+  ];
+  for (const sql of addCols) { try{ await env.DB.prepare(sql).run(); }catch(_){ } }
+}
+
+async function loadSymbols(env, request){
+  const url = new URL(request.url);
+  const symsParam = url.searchParams.get('symbols') || url.searchParams.get('s') || url.searchParams.get('symbol');
+  if (symsParam){
+    const arr = symsParam.split(',').map(s => s.trim()).filter(Boolean);
+    return Array.from(new Set(arr.map(s => s.toUpperCase())));
+  }
+  const { results: holdings } = await env.DB.prepare('SELECT symbol FROM holdings ORDER BY symbol').all();
+  return Array.from(new Set((holdings || []).map(r => String(r.symbol || '').toUpperCase()).filter(Boolean)));
+}
+
+async function refreshCurrent(env, request){
+  let symbols = await loadSymbols(env, request);
+  if (!symbols.length) return { updated: 0 };
+  if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
+  // Fetch current quotes
+  let quotes = {};
+  try { quotes = await fetchYahoo(symbols); } catch (_) {}
+  const missing = symbols.filter(s => !quotes[s]);
+  if (missing.length) {
+    try{
+      const add = await fetchStooq(missing);
+      for (const s of missing){ if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
+    }catch(_){ }
+  }
+  // Normalize currencies and FX
+  if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)){
+    const r = quotes['USDJPY=X'].regularMarketPrice; if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
+    quotes['USDJPY=X'].currency = 'JPY';
+  }
+  for (const s of Object.keys(quotes)) { if (/\.T$/i.test(s)) quotes[s].currency = 'JPY'; }
+  let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
+  if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
+  await ensureQuotesSchema(env);
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (const s of symbols){
+    if (s === 'USDJPY=X') continue;
+    const q = quotes[s]; if (!q) continue;
+    const p = Number(q.regularMarketPrice); if (!Number.isFinite(p)) continue;
+    const cur = String(q.currency || '').toUpperCase() || null;
+    let jpy = null; if (cur === 'JPY' || /\.T$/i.test(s)) jpy = p; else if (cur === 'USD' && Number.isFinite(usdJpy)) jpy = p * usdJpy;
+    await env.DB.prepare(
+      'INSERT INTO quotes(symbol, price, currency, jpy, updated_at) VALUES(?,?,?,?,?) ' +
+      'ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, updated_at=excluded.updated_at'
+    ).bind(s, p, cur, jpy, now).run();
+    updated++;
+  }
+  return { updated };
+}
+
+async function refreshBaselines(env, request){
+  const symbolsAll = (await loadSymbols(env, request)).filter(s => s !== 'USDJPY=X');
+  if (!symbolsAll.length) return { updated: 0 };
+  // Only refresh when needed based on per-period updated_*_at date (UTC day)
+  await ensureQuotesSchema(env);
+  let existing = {};
+  try {
+    const { results } = await env.DB.prepare('SELECT symbol, updated_1m_at, updated_3m_at, updated_6m_at, updated_1y_at, updated_3y_at FROM quotes').all();
+    for (const r of results || []) { existing[String(r.symbol).toUpperCase()] = r; }
+  } catch(_){}
+  const today = new Date().toISOString().slice(0,10);
+  function needUpdate(sym, col){ const row = existing[sym]; const v = row && row[col]; return !v || String(v).slice(0,10) !== today; }
+  const symbols = symbolsAll.filter(s => {
+    const U = s.toUpperCase();
+    return needUpdate(U,'updated_1m_at') || needUpdate(U,'updated_3m_at') || needUpdate(U,'updated_6m_at') || needUpdate(U,'updated_1y_at') || needUpdate(U,'updated_3y_at');
+  });
+  if (!symbols.length) return { updated: 0 };
+  // Get currencies + usdjpy
+  let quotes = {};
+  try { quotes = await fetchYahoo([...symbols, 'USDJPY=X']); } catch(_){ }
+  if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)){
+    const r = quotes['USDJPY=X'].regularMarketPrice; if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
+    quotes['USDJPY=X'].currency = 'JPY';
+  }
+  for (const s of Object.keys(quotes)) { if (/\.T$/i.test(s)) quotes[s].currency = 'JPY'; }
+  let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
+  if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
+  // Baselines
+  let bases = {};
+  try { bases = await fetchYahooBaselines(symbols); } catch(_){ }
+  await ensureQuotesSchema(env);
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (const s of symbols){
+    const b = bases && bases[s] || {};
+    const cur = String((quotes[s] && quotes[s].currency) || ( /\.T$/i.test(s) ? 'JPY' : 'USD')).toUpperCase();
+    const v1m = Number(b.prevClose30d);
+    const v3m = Number(b.prevClose90d);
+    const v6m = Number(b.prevClose180d);
+    const v1y = Number(b.prevClose365d);
+    const v3y = Number(b.prevClose1095d);
+    const j1m = Number.isFinite(v1m) ? ((cur==='JPY'||/\.T$/i.test(s))? v1m : (Number.isFinite(usdJpy)? v1m*usdJpy : null)) : null;
+    const j3m = Number.isFinite(v3m) ? ((cur==='JPY'||/\.T$/i.test(s))? v3m : (Number.isFinite(usdJpy)? v3m*usdJpy : null)) : null;
+    const j6m = Number.isFinite(v6m) ? ((cur==='JPY'||/\.T$/i.test(s))? v6m : (Number.isFinite(usdJpy)? v6m*usdJpy : null)) : null;
+    const j1y = Number.isFinite(v1y) ? ((cur==='JPY'||/\.T$/i.test(s))? v1y : (Number.isFinite(usdJpy)? v1y*usdJpy : null)) : null;
+    const j3y = Number.isFinite(v3y) ? ((cur==='JPY'||/\.T$/i.test(s))? v3y : (Number.isFinite(usdJpy)? v3y*usdJpy : null)) : null;
+    // If nothing to update, skip counting
+    if (!Number.isFinite(v1m) && !Number.isFinite(v3m) && !Number.isFinite(v6m) && !Number.isFinite(v1y) && !Number.isFinite(v3y)) continue;
+    await env.DB.prepare(
+      'INSERT INTO quotes('+
+        'symbol, price_1m, jpy_1m, updated_1m_at, '+
+        'price_3m, jpy_3m, updated_3m_at, '+
+        'price_6m, jpy_6m, updated_6m_at, '+
+        'price_1y, jpy_1y, updated_1y_at, '+
+        'price_3y, jpy_3y, updated_3y_at'+
+      ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
+      'ON CONFLICT(symbol) DO UPDATE SET '+
+      'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, '+
+      'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, '+
+      'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, '+
+      'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, '+
+      'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
+    ).bind(
+      s,
+      Number.isFinite(v1m)? v1m : null, j1m, Number.isFinite(v1m)? now : null,
+      Number.isFinite(v3m)? v3m : null, j3m, Number.isFinite(v3m)? now : null,
+      Number.isFinite(v6m)? v6m : null, j6m, Number.isFinite(v6m)? now : null,
+      Number.isFinite(v1y)? v1y : null, j1y, Number.isFinite(v1y)? now : null,
+      Number.isFinite(v3y)? v3y : null, j3y, Number.isFinite(v3y)? now : null
+    ).run();
+    updated++;
+  }
+  return { updated };
 }
