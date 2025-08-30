@@ -43,17 +43,8 @@ export default {
         try {
           await ensureHoldingsSchema(env);
         } catch (e) {}
-        // ensure quotes table exists to avoid join error
-        try {
-          await env.DB.prepare(
-            'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
-            'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
-            'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
-            'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
-            'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, ' +
-            'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
-          ).run();
-        } catch (e) {}
+        // ensure quotes table exists and migrated (1d/1m/3m/6m/1y/3y)
+        try { await ensureQuotesSchema(env); } catch (e) {}
         try {
           const { results } = await env.DB.prepare(
             `SELECT h.symbol,
