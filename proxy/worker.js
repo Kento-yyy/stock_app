@@ -38,6 +38,10 @@ export default {
         if (request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
         }
+        // ensure holdings has company_name column for join output
+        try {
+          await ensureHoldingsSchema(env);
+        } catch (e) {}
         // ensure quotes table exists to avoid join error
         try {
           await env.DB.prepare(
@@ -54,6 +58,7 @@ export default {
             `SELECT h.symbol,
                     h.shares,
                     h.currency AS currency,
+                    h.company_name AS company_name,
                     q.price,
                     q.jpy,
                     q.currency AS price_currency,
@@ -97,8 +102,9 @@ export default {
       }
       if (url.pathname === '/api/portfolio') {
         if (request.method === 'GET') {
+          try { await ensureHoldingsSchema(env); } catch(e){}
           const { results } = await env.DB.prepare(
-            'SELECT symbol, shares, currency FROM holdings ORDER BY symbol'
+            'SELECT symbol, shares, currency, company_name FROM holdings ORDER BY symbol'
           ).all();
           return json(results);
         } else if (request.method === 'POST') {
@@ -106,10 +112,13 @@ export default {
           const sym = String(body.symbol || '').trim();
           const shares = Number(body.shares);
           const cur = body.currency ? String(body.currency).trim() : null;
+          const name = body.company_name ? String(body.company_name).trim() : (body.name ? String(body.name).trim() : null);
           if (!sym) return json({ error: 'symbol required' }, 400);
+          try { await ensureHoldingsSchema(env); } catch(e){}
           await env.DB.prepare(
-            'INSERT OR REPLACE INTO holdings(symbol, shares, currency) VALUES(?,?,?)'
-          ).bind(sym, shares, cur).run();
+            'INSERT INTO holdings(symbol, shares, currency, company_name) VALUES(?,?,?,?) '
+            + 'ON CONFLICT(symbol) DO UPDATE SET shares=excluded.shares, currency=excluded.currency, company_name=COALESCE(excluded.company_name, company_name)'
+          ).bind(sym, shares, cur, name).run();
           return json({ ok: true });
         } else if (request.method === 'DELETE') {
           const sym = url.searchParams.get('symbol');
@@ -311,6 +320,17 @@ function corsHeaders(extra = {}) {
 
 function json(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj), { status, headers: corsHeaders(extraHeaders) });
+}
+
+async function ensureHoldingsSchema(env){
+  // Create if not exists (non-destructive) and add company_name if missing
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS holdings (symbol TEXT PRIMARY KEY, shares REAL NOT NULL, currency TEXT, company_name TEXT)')
+      .run();
+  } catch(_){ }
+  try {
+    await env.DB.prepare('ALTER TABLE holdings ADD COLUMN company_name TEXT').run();
+  } catch(_){ /* ignore if exists */ }
 }
 
 async function fetchYahoo(symbols) {

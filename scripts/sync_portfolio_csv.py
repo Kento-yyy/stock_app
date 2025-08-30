@@ -16,8 +16,8 @@ CSV(portfolio.csv) の内容を Cloudflare Workers の `/api/portfolio` へ反�
       --mode replace
 
 API 仕様(本リポジトリの proxy/worker.js に準拠):
-- GET    /api/portfolio                 → [{symbol, shares, currency}]
-- POST   /api/portfolio  JSON: {symbol,shares,currency} → {ok:true}
+- GET    /api/portfolio                 → [{symbol, shares, currency, company_name}]
+- POST   /api/portfolio  JSON: {symbol,shares,currency,company_name?} → {ok:true}
 - DELETE /api/portfolio?symbol=XXXX     → {ok:true}
 """
 
@@ -44,6 +44,7 @@ class Holding:
     symbol: str
     shares: float
     currency: Optional[str] = None
+    company_name: Optional[str] = None
 
 
 def _http_json(url: str, method: str = "GET", data: Optional[dict] = None, timeout: int = 30) -> dict:
@@ -69,7 +70,8 @@ def api_get_holdings(api: str) -> List[Holding]:
         except Exception:
             sh = 0.0
         ccy = (r.get("currency") or "").strip().upper() or None
-        out.append(Holding(symbol=sym, shares=sh, currency=ccy))
+        name = (r.get("company_name") or r.get("name") or "").strip() or None
+        out.append(Holding(symbol=sym, shares=sh, currency=ccy, company_name=name))
     return out
 
 
@@ -81,6 +83,7 @@ def api_upsert(api: str, h: Holding, dry_run: bool = False) -> None:
         "symbol": h.symbol,
         "shares": h.shares,
         "currency": h.currency,
+        "company_name": h.company_name,
     })
 
 
@@ -97,6 +100,7 @@ def read_csv(path: str) -> List[Holding]:
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         # 必須列: symbol, shares, currency
+        # 任意列: name / company_name
         for row in reader:
             sym = str(row.get("symbol") or "").strip()
             if not sym:
@@ -107,7 +111,9 @@ def read_csv(path: str) -> List[Holding]:
                 sh = 0.0
             ccy_raw = row.get("currency")
             ccy = (ccy_raw.strip().upper() if isinstance(ccy_raw, str) else None) or None
-            out.append(Holding(symbol=sym, shares=sh, currency=ccy))
+            name_raw = row.get("company_name") or row.get("name")
+            name = (name_raw.strip() if isinstance(name_raw, str) else None) or None
+            out.append(Holding(symbol=sym, shares=sh, currency=ccy, company_name=name))
     return out
 
 

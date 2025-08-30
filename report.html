@@ -116,7 +116,10 @@
             var tdSym = document.createElement('td');
             tdSym.setAttribute('data-value', r.symbol);
             tdSym.style.textAlign = 'left';
+            // SYMBOL + optional company name
+            var name = (r.company_name || r.name || '').trim();
             tdSym.textContent = r.symbol;
+            if (name) { var sp = document.createElement('span'); sp.className = 'co'; sp.textContent = name; tdSym.appendChild(document.createTextNode(' ')); tdSym.appendChild(sp); }
             tr.appendChild(tdSym);
             var tdShares = document.createElement('td');
             tdShares.setAttribute('data-value', isFinite(r.shares)? String(r.shares): '');
@@ -892,6 +895,11 @@
         el.style.color = (frac>0?'#0a0':(frac<0?'#c00':'inherit'));
         return el;
       }
+      function escapeHtml(s){
+        try{
+          return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); });
+        }catch(e){ return String(s); }
+      }
       async function loadDbSnapshot(){
         var base = getWorkerBase();
         var title = document.getElementById('db-snap-title');
@@ -908,7 +916,12 @@
           tbody.innerHTML='';
           rows.forEach(function(r){
             var tr = document.createElement('tr');
-            tr.appendChild(td(r.symbol, 'left'));
+            // SYMBOL + optional company name
+            var tdSym = document.createElement('td');
+            tdSym.style.textAlign = 'left';
+            var nm = (r.company_name || r.name || '').trim();
+            tdSym.innerHTML = nm ? (r.symbol + " <span class='co'>" + escapeHtml(nm) + "</span>") : r.symbol;
+            tr.appendChild(tdSym);
             tr.appendChild(td(isFinite(r.shares)? String(r.shares): ''));
             var ccy = (r.price_currency || r.currency || '').toUpperCase();
             tr.appendChild(td(ccy));
