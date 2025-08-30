@@ -93,6 +93,19 @@ export default {
         const r = await refreshBaselines(env, request);
         return json({ ok: true, updated: r.updated });
       }
+      // Admin: reorder DB columns by recreating tables in canonical order
+      if (url.pathname === '/admin/reorder-columns') {
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        try{
+          await reorderHoldings(env);
+        }catch(e){ /* ignore */ }
+        try{
+          await reorderQuotes(env);
+        }catch(e){ /* ignore */ }
+        return json({ ok: true });
+      }
       if (url.pathname === '/api/portfolio') {
         if (request.method === 'GET') {
           try { await ensureHoldingsSchema(env); } catch(e){}
@@ -318,12 +331,59 @@ function json(obj, status = 200, extraHeaders = {}) {
 async function ensureHoldingsSchema(env){
   // Create if not exists (non-destructive) and add company_name if missing
   try {
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS holdings (symbol TEXT PRIMARY KEY, shares REAL NOT NULL, currency TEXT, company_name TEXT)')
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS holdings (symbol TEXT PRIMARY KEY, company_name TEXT, shares REAL NOT NULL, currency TEXT)')
       .run();
   } catch(_){ }
   try {
     await env.DB.prepare('ALTER TABLE holdings ADD COLUMN company_name TEXT').run();
   } catch(_){ /* ignore if exists */ }
+}
+
+async function reorderHoldings(env){
+  // Rename old table; create new with canonical order; copy; drop old
+  try { await env.DB.prepare('ALTER TABLE holdings RENAME TO holdings_old').run(); } catch(_){ /* maybe not exists */ }
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS holdings (symbol TEXT PRIMARY KEY, company_name TEXT, shares REAL NOT NULL, currency TEXT)').run();
+  try {
+    await env.DB.prepare('INSERT INTO holdings(symbol, company_name, shares, currency) SELECT symbol, company_name, shares, currency FROM holdings_old').run();
+  } catch(_){ }
+  try { await env.DB.prepare('DROP TABLE holdings_old').run(); } catch(_){ }
+}
+
+async function reorderQuotes(env){
+  await ensureQuotesSchema(env);
+  try { await env.DB.prepare('ALTER TABLE quotes RENAME TO quotes_old').run(); } catch(_){ /* not exists */ }
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS quotes ('+
+    'symbol TEXT PRIMARY KEY, '+
+    'price REAL, currency TEXT, jpy REAL, updated_at TEXT, '+
+    'price_1d REAL, jpy_1d REAL, updated_1d_at TEXT, '+
+    'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, '+
+    'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, '+
+    'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, '+
+    'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, '+
+    'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
+  ).run();
+  try {
+    await env.DB.prepare(
+      'INSERT INTO quotes('+
+        'symbol, price, currency, jpy, updated_at, '+
+        'price_1d, jpy_1d, updated_1d_at, '+
+        'price_1m, jpy_1m, updated_1m_at, '+
+        'price_3m, jpy_3m, updated_3m_at, '+
+        'price_6m, jpy_6m, updated_6m_at, '+
+        'price_1y, jpy_1y, updated_1y_at, '+
+        'price_3y, jpy_3y, updated_3y_at'+
+      ') SELECT '+
+        'symbol, price, currency, jpy, updated_at, '+
+        'price_1d, jpy_1d, updated_1d_at, '+
+        'price_1m, jpy_1m, updated_1m_at, '+
+        'price_3m, jpy_3m, updated_3m_at, '+
+        'price_6m, jpy_6m, updated_6m_at, '+
+        'price_1y, jpy_1y, updated_1y_at, '+
+        'price_3y, jpy_3y, updated_3y_at FROM quotes_old'
+    ).run();
+  } catch(_){ }
+  try { await env.DB.prepare('DROP TABLE quotes_old').run(); } catch(_){ }
 }
 
 async function fetchYahoo(symbols) {
@@ -741,6 +801,18 @@ async function refreshCurrent(env, request){
       for (const s of missing){ if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
     }catch(_){ }
   }
+  // Ensure prevClose (1d baseline) exists using Yahoo baselines when missing
+  try{
+    const needPrev = symbols.filter(s => s !== 'USDJPY=X' && quotes[s] && !Number.isFinite(quotes[s].prevClose));
+    if (needPrev.length){
+      const bases = await fetchYahooBaselines(needPrev);
+      for (const s of Object.keys(bases || {})){
+        const b = bases[s] || {};
+        if (!quotes[s]) quotes[s] = {};
+        if (Number.isFinite(b.prevClose)) quotes[s].prevClose = b.prevClose;
+      }
+    }
+  }catch(_){ }
   // Normalize currencies and FX
   if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)){
     const r = quotes['USDJPY=X'].regularMarketPrice; if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
