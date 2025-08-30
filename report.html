@@ -110,7 +110,9 @@
       window.loadPortfolio = async function(){
         if (window.__pfLoaded) return;
         try{
-          var res = await fetch('/api/portfolio');
+          var base = (function(){ try{ return getWorkerBase(); }catch(e){ return null; } })();
+          var url = base ? (base + '/api/portfolio') : '/api/portfolio';
+          var res = await fetch(url);
           var rows = await res.json();
           var jpyBody = document.querySelector('#pf-table-jpy tbody');
           var usdBody = document.querySelector('#pf-table-usd tbody');
@@ -422,6 +424,42 @@
         var q = await fetchViaProxy(syms);
         return q || {};
       }
+      // Worker base URL from ?api, normalized (strip /quote)
+      function getWorkerBase(){
+        var b = getApiBase();
+        if (!b) return null;
+        try{
+          var u = new URL(b, location.origin);
+          if (/\/quote(\/.+)?$/i.test(u.pathname)){
+            u.pathname = u.pathname.replace(/\/quote(\/.+)?$/i, '/');
+          }
+          return u.toString().replace(/\/$/, '');
+        }catch(_){
+          return b.replace(/\/quote(\/.+)?$/i, '');
+        }
+      }
+      async function fetchDbPortfolioWithPrices(){
+        var base = getWorkerBase(); if (!base) throw new Error('no worker base');
+        var res = await fetch(base + '/api/portfolio_with_prices', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP '+res.status);
+        var rows = await res.json(); if (!Array.isArray(rows)) throw new Error('invalid response');
+        var quotes = {};
+        rows.forEach(function(r){
+          var sym = String(r.symbol || '').toUpperCase(); if(!sym) return;
+          var q = {};
+          if (isFinite(r.price)) q.regularMarketPrice = Number(r.price);
+          var cur = (r.price_currency || r.currency || '').toUpperCase(); if (cur) q.currency = cur;
+          if (isFinite(r.jpy)) q.jpy = Number(r.jpy);
+          if (isFinite(r.price_1d)) q.prevClose = Number(r.price_1d);
+          if (isFinite(r.price_1m)) q.prevClose30d = Number(r.price_1m);
+          if (isFinite(r.price_1y)) q.prevClose365d = Number(r.price_1y);
+          if (isFinite(r.jpy_1d)) q.prevJpy = Number(r.jpy_1d);
+          if (isFinite(r.jpy_1m)) q.prevJpy30d = Number(r.jpy_1m);
+          if (isFinite(r.jpy_1y)) q.prevJpy365d = Number(r.jpy_1y);
+          quotes[sym] = q;
+        });
+        return quotes;
+      }
       async function fetchYahoo(symbols){
         if(!symbols || !symbols.length) return {};
         var url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','));
@@ -717,10 +755,15 @@
           if(syms.indexOf('USDJPY=X')<0) syms.push('USDJPY=X');
           var quotes = {};
           var apiBase = getApiBase();
+          var workerBase = getWorkerBase();
           
-          if (apiBase) {
-            // When explicit API is specified, honor it and prefer Stooq at the worker
-            try { quotes = await fetchViaProxy(syms); } catch(e) { }
+          if (workerBase) {
+            // Prefer DB rows when a Worker base is provided
+            try { quotes = await fetchDbPortfolioWithPrices(); } catch(e) { quotes = {}; }
+            // Fallback to Worker quote proxy
+            if (!quotes || Object.keys(quotes).length === 0) {
+              try { quotes = await fetchViaProxy(syms); } catch(e2) { quotes = {}; }
+            }
             // Fast path: only re-fetch suspicious JP rows (rare) concurrently
             try {
               var codes = new Set(syms.filter(function(s){return /\.T$/i.test(s);}).map(function(s){return parseInt(s,10);}));
@@ -742,6 +785,9 @@
                 }));
               }
             } catch(_){ }
+          } else if (apiBase) {
+            // When explicit API is specified (no workerBase derivable), prefer Worker quote proxy
+            try { quotes = await fetchViaProxy(syms); } catch(e) { }
           } else {
             // Prefer Stooq directly, then Yahoo as fallback (no API)
             try { quotes = await fetchStooq(syms); } catch(e) { }
