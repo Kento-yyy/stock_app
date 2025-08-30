@@ -18,7 +18,13 @@ export default {
         if (request.method === 'GET') {
           try {
             const { results } = await env.DB.prepare(
-              'SELECT symbol, price, currency, jpy, updated_at, price_1m, jpy_1m, updated_1m_at, price_6m, jpy_6m, updated_6m_at, price_1y, jpy_1y, updated_1y_at FROM quotes ORDER BY symbol'
+              'SELECT symbol, price, currency, jpy, updated_at, ' +
+              'price_1m, jpy_1m, updated_1m_at, ' +
+              'price_3m, jpy_3m, updated_3m_at, ' +
+              'price_6m, jpy_6m, updated_6m_at, ' +
+              'price_1y, jpy_1y, updated_1y_at, ' +
+              'price_3y, jpy_3y, updated_3y_at ' +
+              'FROM quotes ORDER BY symbol'
             ).all();
             return json(results);
           } catch (e) {
@@ -35,7 +41,12 @@ export default {
         // ensure quotes table exists to avoid join error
         try {
           await env.DB.prepare(
-            'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT)'
+            'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
+            'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
+            'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
+            'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
+            'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, ' +
+            'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
           ).run();
         } catch (e) {}
         try {
@@ -46,7 +57,12 @@ export default {
                     q.price,
                     q.jpy,
                     q.currency AS price_currency,
-                    q.updated_at
+                    q.updated_at,
+                    q.price_1m, q.jpy_1m, q.updated_1m_at,
+                    q.price_3m, q.jpy_3m, q.updated_3m_at,
+                    q.price_6m, q.jpy_6m, q.updated_6m_at,
+                    q.price_1y, q.jpy_1y, q.updated_1y_at,
+                    q.price_3y, q.jpy_3y, q.updated_3y_at
                FROM holdings h
                LEFT JOIN quotes q ON q.symbol = h.symbol
                ORDER BY h.symbol`
@@ -96,21 +112,32 @@ export default {
         let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
         if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
 
-        // 3) ensure table exists
+        // 3) ensure table exists (with all baseline columns)
         await env.DB.prepare(
-          'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, price_1y REAL, jpy_1y REAL, updated_1y_at TEXT)'
+          'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
+          'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
+          'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
+          'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
+          'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, ' +
+          'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
         ).run();
         // Try to add new columns if table already existed without them
         const addCols = [
           "ALTER TABLE quotes ADD COLUMN price_1m REAL",
           "ALTER TABLE quotes ADD COLUMN jpy_1m REAL",
           "ALTER TABLE quotes ADD COLUMN updated_1m_at TEXT",
+          "ALTER TABLE quotes ADD COLUMN price_3m REAL",
+          "ALTER TABLE quotes ADD COLUMN jpy_3m REAL",
+          "ALTER TABLE quotes ADD COLUMN updated_3m_at TEXT",
           "ALTER TABLE quotes ADD COLUMN price_6m REAL",
           "ALTER TABLE quotes ADD COLUMN jpy_6m REAL",
           "ALTER TABLE quotes ADD COLUMN updated_6m_at TEXT",
           "ALTER TABLE quotes ADD COLUMN price_1y REAL",
           "ALTER TABLE quotes ADD COLUMN jpy_1y REAL",
           "ALTER TABLE quotes ADD COLUMN updated_1y_at TEXT",
+          "ALTER TABLE quotes ADD COLUMN price_3y REAL",
+          "ALTER TABLE quotes ADD COLUMN jpy_3y REAL",
+          "ALTER TABLE quotes ADD COLUMN updated_3y_at TEXT",
         ];
         for (const sql of addCols) {
           try { await env.DB.prepare(sql).run(); } catch (_) {}
@@ -132,25 +159,44 @@ export default {
           // baselines
           const b = bases && bases[s] || {};
           const b1m = Number(b.prevClose30d);
+          const b3m = Number(b.prevClose90d);
           const b6m = Number(b.prevClose180d);
           const b1y = Number(b.prevClose365d);
+          const b3y = Number(b.prevClose1095d);
           const b1m_jpy = Number.isFinite(b1m) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b1m : (Number.isFinite(usdJpy) ? b1m * usdJpy : null)) : null;
+          const b3m_jpy = Number.isFinite(b3m) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b3m : (Number.isFinite(usdJpy) ? b3m * usdJpy : null)) : null;
           const b6m_jpy = Number.isFinite(b6m) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b6m : (Number.isFinite(usdJpy) ? b6m * usdJpy : null)) : null;
           const b1y_jpy = Number.isFinite(b1y) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b1y : (Number.isFinite(usdJpy) ? b1y * usdJpy : null)) : null;
+          const b3y_jpy = Number.isFinite(b3y) ? ((cur === 'JPY' || /\.T$/i.test(s)) ? b3y : (Number.isFinite(usdJpy) ? b3y * usdJpy : null)) : null;
           // Upsert preserving existing baseline values when not available
           await env.DB.prepare(
-            'INSERT INTO quotes(symbol, price, currency, jpy, updated_at, price_1m, jpy_1m, updated_1m_at, price_6m, jpy_6m, updated_6m_at, price_1y, jpy_1y, updated_1y_at) ' +
-            'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ' +
-            'ON CONFLICT(symbol) DO UPDATE SET ' +
+            'INSERT INTO quotes(' +
+              'symbol, price, currency, jpy, updated_at, ' +
+              'price_1m, jpy_1m, updated_1m_at, ' +
+              'price_3m, jpy_3m, updated_3m_at, ' +
+              'price_6m, jpy_6m, updated_6m_at, ' +
+              'price_1y, jpy_1y, updated_1y_at, ' +
+              'price_3y, jpy_3y, updated_3y_at' +
+            ') VALUES(?,?,?,?,?,' +
+                     '?,?,?,' +
+                     '?,?,?,' +
+                     '?,?,?,' +
+                     '?,?,?,' +
+                     '?,?,?' +
+            ') ON CONFLICT(symbol) DO UPDATE SET ' +
             'price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, updated_at=excluded.updated_at, ' +
             'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, ' +
+            'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, ' +
             'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, ' +
-            'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END'
+            'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, ' +
+            'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
           ).bind(
             s, p, cur, jpy, now,
             Number.isFinite(b1m) ? b1m : null, b1m_jpy, Number.isFinite(b1m) ? now : null,
+            Number.isFinite(b3m) ? b3m : null, b3m_jpy, Number.isFinite(b3m) ? now : null,
             Number.isFinite(b6m) ? b6m : null, b6m_jpy, Number.isFinite(b6m) ? now : null,
-            Number.isFinite(b1y) ? b1y : null, b1y_jpy, Number.isFinite(b1y) ? now : null
+            Number.isFinite(b1y) ? b1y : null, b1y_jpy, Number.isFinite(b1y) ? now : null,
+            Number.isFinite(b3y) ? b3y : null, b3y_jpy, Number.isFinite(b3y) ? now : null
           ).run();
           updated++;
         }
@@ -558,7 +604,7 @@ async function fetchStooq(symbols) {
 
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-async function fetchYahooChart(sym, range = '2y') {
+async function fetchYahooChart(sym, range = '5y') {
   const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
   const enc = encodeURIComponent(sym);
   const urls = [
@@ -623,13 +669,17 @@ async function fetchYahooSparkBaselines(symbols) {
             const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt === 2){ prev1d = c; break; }
           }
           const b30 = pickBaselineAt(resp, 30);
+          const b90 = pickBaselineAt(resp, 90);
           const b180 = pickBaselineAt(resp, 180);
           const b365 = pickBaselineAt(resp, 365);
+          const b1095 = pickBaselineAt(resp, 1095);
           if (!out[sym]) out[sym] = {};
           if (Number.isFinite(prev1d) && out[sym].prevClose == null) out[sym].prevClose = prev1d;
           if (Number.isFinite(b30) && out[sym].prevClose30d == null) out[sym].prevClose30d = b30;
+          if (Number.isFinite(b90) && out[sym].prevClose90d == null) out[sym].prevClose90d = b90;
           if (Number.isFinite(b180) && out[sym].prevClose180d == null) out[sym].prevClose180d = b180;
           if (Number.isFinite(b365) && out[sym].prevClose365d == null) out[sym].prevClose365d = b365;
+          if (Number.isFinite(b1095) && out[sym].prevClose1095d == null) out[sym].prevClose1095d = b1095;
         }catch(_){ }
       }
     }catch(_){ }
@@ -637,10 +687,10 @@ async function fetchYahooSparkBaselines(symbols) {
   for (const ch of chunks) {
     const sy = encodeURIComponent(ch.join(','));
     const urls = [
-      `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=2y&interval=1d`,
-      `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=2y&interval=1d`,
-      `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=2y&interval=1d`,
-      `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=2y&interval=1d`
+      `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=5y&interval=1d`,
+      `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=5y&interval=1d`,
+      `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=5y&interval=1d`,
+      `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=5y&interval=1d`
     ];
     let ok = false;
     for (const u of urls) {
@@ -670,11 +720,15 @@ async function fetchYahooSparkBaselines(symbols) {
             if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
           }catch(_){ }
           const b30 = pickBaselineAt(r, 30);
+          const b90 = pickBaselineAt(r, 90);
           const b180 = pickBaselineAt(r, 180);
           const b365 = pickBaselineAt(r, 365);
+          const b1095 = pickBaselineAt(r, 1095);
           if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
+          if (Number.isFinite(b90)) out[sym].prevClose90d = b90;
           if (Number.isFinite(b180)) out[sym].prevClose180d = b180;
           if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
+          if (Number.isFinite(b1095)) out[sym].prevClose1095d = b1095;
         }catch(_){ }
       }
     }
@@ -688,7 +742,9 @@ async function fetchYahooBaselines(symbols) {
   // Fallback per-symbol for any still-missing baselines, but cap to avoid subrequest limit (50)
   const missing = symbols.filter(s => {
     const v = out[String(s).toUpperCase()] || {};
-    return !(Number.isFinite(v.prevClose) && (Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose180d) || Number.isFinite(v.prevClose365d)));
+    return !(Number.isFinite(v.prevClose) && (
+      Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose90d) || Number.isFinite(v.prevClose180d) || Number.isFinite(v.prevClose365d) || Number.isFinite(v.prevClose1095d)
+    ));
   });
   const limit = Math.min(50, symbols.length); // safe cap respecting Cloudflare subrequest limits
   for (let i = 0; i < Math.min(limit, missing.length); i++){
@@ -705,12 +761,16 @@ async function fetchYahooBaselines(symbols) {
         for (let k = closes.length - 1, cnt=0; k >= 0; k--) { const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt===2){ prev1d = c; break; } }
       }catch(_){ }
       const b30 = pickBaselineAt(r, 30);
+      const b90 = pickBaselineAt(r, 90);
       const b180 = pickBaselineAt(r, 180);
       const b365 = pickBaselineAt(r, 365);
+      const b1095 = pickBaselineAt(r, 1095);
       if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
       if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
+      if (Number.isFinite(b90)) out[sym].prevClose90d = b90;
       if (Number.isFinite(b180)) out[sym].prevClose180d = b180;
       if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
+      if (Number.isFinite(b1095)) out[sym].prevClose1095d = b1095;
     }catch(_){ }
   }
   return out;
