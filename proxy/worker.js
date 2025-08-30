@@ -28,6 +28,34 @@ export default {
         }
         return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
       }
+      if (url.pathname === '/api/portfolio_with_prices') {
+        if (request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
+        }
+        // ensure quotes table exists to avoid join error
+        try {
+          await env.DB.prepare(
+            'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT)'
+          ).run();
+        } catch (e) {}
+        try {
+          const { results } = await env.DB.prepare(
+            `SELECT h.symbol,
+                    h.shares,
+                    h.currency AS currency,
+                    q.price,
+                    q.jpy,
+                    q.currency AS price_currency,
+                    q.updated_at
+               FROM holdings h
+               LEFT JOIN quotes q ON q.symbol = h.symbol
+               ORDER BY h.symbol`
+          ).all();
+          return json(results);
+        } catch (e) {
+          return json({ error: 'server error', detail: String(e) }, 500);
+        }
+      }
       if (url.pathname === '/api/quotes/refresh') {
         if (request.method !== 'POST' && request.method !== 'GET') {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
