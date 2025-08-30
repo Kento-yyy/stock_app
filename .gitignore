@@ -1,4 +1,8 @@
-# Local environment and configs
+# Python
+__pycache__/
+*.pyc
+
+# Local env and configs
 .env
 config.local.json
 

@@ -103,9 +103,43 @@
           });
         });
       };
-      function parseCSV(text){ return null; }
+      function parseCSV(text){
+        return text.trim().split(/\r?\n/).slice(1).map(function(line){
+          var parts = line.split(',');
+          return { symbol: (parts[0] || '').trim(), shares: parseFloat(parts[1] || '0') };
+        }).filter(function(r){ return r.symbol; });
+      }
+      window.loadPortfolio = async function(){
+        if (window.__pfLoaded) return;
+        try{
+          var res = await fetch('portfolio.csv');
+          var txt = await res.text();
+          var rows = parseCSV(txt);
+          var jpyBody = document.querySelector('#pf-table-jpy tbody');
+          var usdBody = document.querySelector('#pf-table-usd tbody');
+          rows.forEach(function(r){
+            var tr = document.createElement('tr');
+            tr.setAttribute('data-symbol', r.symbol);
+            var tdSym = document.createElement('td');
+            tdSym.setAttribute('data-value', r.symbol);
+            tdSym.style.textAlign = 'left';
+            tdSym.textContent = r.symbol;
+            tr.appendChild(tdSym);
+            var tdShares = document.createElement('td');
+            tdShares.setAttribute('data-value', isFinite(r.shares)? String(r.shares): '');
+            tdShares.textContent = isFinite(r.shares)? String(r.shares): '';
+            tr.appendChild(tdShares);
+            for(var i=0;i<11;i++){ var td=document.createElement('td'); td.setAttribute('data-value',''); tr.appendChild(td); }
+            if (/\.T$/i.test(r.symbol)) { if(jpyBody) jpyBody.appendChild(tr); }
+            else { if(usdBody) usdBody.appendChild(tr); }
+          });
+          window.__pfLoaded = true;
+        }catch(e){}
+      };
       function initMonthly(){}
-      document.addEventListener('DOMContentLoaded', function(){
+      window.setupTables = function(){
+        if (window.__pfSetupDone) return;
+        window.__pfSetupDone = true;
         if (window.attachSortHandlers) window.attachSortHandlers();
         // Initial sort: JPY_VALUE (col 5) descending for both tables when monthly view is not used
         try{
@@ -124,7 +158,7 @@
           });
         } catch(e){}
         initMonthly();
-      });
+      };
     })();
     </script>
 <script>
@@ -667,7 +701,9 @@
           if(btn){ btn.disabled = false; btn.textContent='更新'; }
         }
       }
-      function readyRefresh(){
+      async function readyRefresh(){
+        await loadPortfolio();
+        if (window.setupTables) window.setupTables();
         var btn = document.getElementById('pf-refresh-btn'); if(btn){ btn.addEventListener('click', refresh); }
         // auto refresh on load and when back online/visible
         // Apply cached quotes first (if any), then refresh network
@@ -715,7 +751,7 @@
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
 </thead>
-<tbody><tr data-symbol="8306.T"><td data-value="8306.T" style="text-align:left">8306.T <span class="co">MITSUBISHI UFJ FINANCIAL GROUP </span></td><td data-value="500.000000">500</td><td data-value="14.217192">14.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="9201.T"><td data-value="9201.T" style="text-align:left">9201.T <span class="co">JAPAN AIRLINES CO LTD</span></td><td data-value="300.000000">300</td><td data-value="12.892953">12.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8985.T"><td data-value="8985.T" style="text-align:left">8985.T <span class="co">JAPAN HOTEL REIT INVESTMENT COR</span></td><td data-value="11.000000">11</td><td data-value="19.142770">19.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="7203.T"><td data-value="7203.T" style="text-align:left">7203.T <span class="co">TOYOTA MOTOR CORP</span></td><td data-value="300.000000">300</td><td data-value="8.981262">9.0</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8963.T"><td data-value="8963.T" style="text-align:left">8963.T <span class="co">INVINCIBLE INVESTMENT CORP</span></td><td data-value="10.000000">10</td><td data-value="17.207018">17.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="9202.T"><td data-value="9202.T" style="text-align:left">9202.T <span class="co">ANA HOLDINGS INC</span></td><td data-value="200.000000">200</td><td data-value="10.266198">10.3</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="9432.T"><td data-value="9432.T" style="text-align:left">9432.T <span class="co">NTT INC</span></td><td data-value="2800.000000">2,800</td><td data-value="13.152174">13.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8316.T"><td data-value="8316.T" style="text-align:left">8316.T <span class="co">SUMITOMO MITSUI FINANCIAL GROUP</span></td><td data-value="100.000000">100</td><td data-value="13.337930">13.3</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="8591.T"><td data-value="8591.T" style="text-align:left">8591.T <span class="co">ORIX CORPORATION</span></td><td data-value="100.000000">100</td><td data-value="11.740023">11.7</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="3048.T"><td data-value="3048.T" style="text-align:left">3048.T <span class="co">BIC CAMERA INC.</span></td><td data-value="100.000000">100</td><td data-value="15.087605">15.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="7513.T"><td data-value="7513.T" style="text-align:left">7513.T <span class="co">KOJIMA CO LTD</span></td><td data-value="100.000000">100</td><td data-value="18.754974">18.8</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="6526.T"><td data-value="6526.T" style="text-align:left">6526.T <span class="co">SOCIONEXT INC</span></td><td data-value="0.000000">0</td><td data-value="26.591932">26.6</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="7269.T"><td data-value="7269.T" style="text-align:left">7269.T <span class="co">SUZUKI MOTOR CORP</span></td><td data-value="0.000000">0</td><td data-value="9.109884">9.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr></tbody>
+<tbody></tbody>
 <tfoot>
 <tr><td style="text-align:left">TOTAL</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
 </tfoot>
@@ -742,9 +778,7 @@
 <th>JPY_VALUE<span class="sort-indicator"></span></th>
 </tr>
 </thead>
-<tbody>
-<tr data-symbol="TSM"><td data-value="TSM" style="text-align:left">TSM <span class="co">Taiwan Semiconductor Manufactur</span></td><td data-value="28.000000">28</td><td data-value="26.180523">26.2</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="NVDA"><td data-value="NVDA" style="text-align:left">NVDA <span class="co">NVIDIA Corporation</span></td><td data-value="28.000000">28</td><td data-value="58.392290">58.4</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="AVGO"><td data-value="AVGO" style="text-align:left">AVGO <span class="co">Broadcom Inc.</span></td><td data-value="13.000000">13</td><td data-value="109.981680">110.0</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="AMD"><td data-value="AMD" style="text-align:left">AMD <span class="co">Advanced Micro Devices, Inc.</span></td><td data-value="22.000000">22</td><td data-value="100.077850">100.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="MRVL"><td data-value="MRVL" style="text-align:left">MRVL <span class="co">Marvell Technology, Inc.</span></td><td data-value="33.000000">33</td><td data-value="29.916000">29.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="QCOM"><td data-value="QCOM" style="text-align:left">QCOM <span class="co">QUALCOMM Incorporated</span></td><td data-value="15.000000">15</td><td data-value="15.436715">15.4</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="ARM"><td data-value="ARM" style="text-align:left">ARM <span class="co">Arm Holdings plc</span></td><td data-value="14.000000">14</td><td data-value="213.121220">213.1</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="MCD"><td data-value="MCD" style="text-align:left">MCD <span class="co">McDonald's Corporation</span></td><td data-value="5.000000">5</td><td data-value="26.663527">26.7</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="CDNS"><td data-value="CDNS" style="text-align:left">CDNS <span class="co">Cadence Design Systems, Inc.</span></td><td data-value="4.000000">4</td><td data-value="93.498650">93.5</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="SBUX"><td data-value="SBUX" style="text-align:left">SBUX <span class="co">Starbucks Corporation</span></td><td data-value="15.000000">15</td><td data-value="37.948055">37.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="SNPS"><td data-value="SNPS" style="text-align:left">SNPS <span class="co">Synopsys, Inc.</span></td><td data-value="2.000000">2</td><td data-value="69.892235">69.9</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr><tr data-symbol="INTC"><td data-value="INTC" style="text-align:left">INTC <span class="co">Intel Corporation</span></td><td data-value="0.000000">0</td><td data-value="25.618557">25.6</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
-</tbody>
+<tbody></tbody>
 <tfoot>
 <tr><td style="text-align:left">TOTAL</td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td><td data-value=""></td></tr>
 </tfoot>
