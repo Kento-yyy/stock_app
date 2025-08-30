@@ -35,6 +35,16 @@
 - 標準出力に結果表示:
   - `python3 portfolio_notify.py --config config.json --portfolio-url https://<worker>/api/portfolio`
 
+**CSV → DB 反映（同期）**
+- `portfolio.csv` の内容を D1（`/api/portfolio`）へ反映する補助スクリプトを追加しました。
+  - 事前に Cloudflare Workers を `wrangler dev` でローカル起動するか、デプロイ済みのURLを指定してください。
+  - 例（ローカル dev に反映、DBをCSVで置き換え）:
+    - `python3 scripts/sync_portfolio_csv.py --csv portfolio.csv --api http://127.0.0.1:8787/api/portfolio --mode replace`
+  - 例（本番Workerに upsert のみ）:
+    - `python3 scripts/sync_portfolio_csv.py --csv portfolio.csv --api https://<your-worker>.workers.dev/api/portfolio --mode upsert`
+  - 先に差分だけ見たい場合:
+    - `python3 scripts/sync_portfolio_csv.py --csv portfolio.csv --api http://127.0.0.1:8787/api/portfolio --mode replace --dry-run`
+
 
 **混在ポートフォリオ（米国株+日本株）**
 - DB の `currency` 列で銘柄ごとに通貨を指定できます（`USD` または `JPY`）。
@@ -114,4 +124,3 @@
 ## PWA とオフライン
 - HTTPS で配信すると Service Worker が有効になり、`report.html` をオフラインでも表示できます。
 - ホーム画面に追加することでアプリ風に利用できます。
-
