@@ -804,5 +804,104 @@
 </table>
 </div>
 <p class="muted" id="fx-rate"></p>
+
+<h3 id="db-snap-title" style="display:none">DB Snapshot（現在値と変化率 1m/3m/6m/1y/3y）</h3>
+<div class="table-wrap" id="db-snap-wrap" style="display:none">
+  <table class="pf-table" id="db-snapshot">
+    <thead>
+      <tr>
+        <th style="text-align:left">SYMBOL</th>
+        <th>SHARES</th>
+        <th>CCY</th>
+        <th>PRICE</th>
+        <th>JPY</th>
+        <th>1M</th>
+        <th>3M</th>
+        <th>6M</th>
+        <th>1Y</th>
+        <th>3Y</th>
+        <th>UPDATED</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <p class="muted">注: DBに保存された基準値から算出（JPYベース）。?api= でWorkerを指定すると表示されます。</p>
+  <div style="margin:6px 0 20px;">
+    <button id="db-snap-refresh">DBスナップショット更新</button>
+  </div>
+  
+  <script>
+    (function(){
+      function getApiBase(){
+        try{
+          var p = new URLSearchParams(location.search).get('api');
+          if (p) return p.replace(/\/$/, '');
+          var ls = localStorage.getItem('PF_API_BASE');
+          if (ls) return ls.replace(/\/$/, '');
+        }catch(e){}
+        return null;
+      }
+      function pct(from, to){
+        var a = Number(from), b = Number(to);
+        if (!isFinite(a) || !isFinite(b) || a <= 0) return null;
+        return (b - a) / a;
+      }
+      function td(text, align){
+        var el = document.createElement('td');
+        if (text==null) text = '';
+        el.textContent = text;
+        if (align) el.style.textAlign = align;
+        return el;
+      }
+      function tdPct(frac){
+        var el = document.createElement('td');
+        if (!isFinite(frac)) { el.textContent = ''; return el; }
+        var v = frac * 100;
+        el.textContent = (v>=0?'+':'') + v.toFixed(2) + '%';
+        el.style.color = (frac>0?'#0a0':(frac<0?'#c00':'inherit'));
+        return el;
+      }
+      async function loadDbSnapshot(){
+        var base = getApiBase();
+        var title = document.getElementById('db-snap-title');
+        var wrap = document.getElementById('db-snap-wrap');
+        if (!base){ if(title) title.style.display='none'; if(wrap) wrap.style.display='none'; return; }
+        try{
+          var url = base.replace(/\/$/, '') + '/api/portfolio_with_prices';
+          var res = await fetch(url);
+          if (!res.ok) throw new Error('HTTP '+res.status);
+          var rows = await res.json();
+          var tbody = document.querySelector('#db-snapshot tbody');
+          if (!tbody) return;
+          tbody.innerHTML='';
+          rows.forEach(function(r){
+            var tr = document.createElement('tr');
+            tr.appendChild(td(r.symbol, 'left'));
+            tr.appendChild(td(isFinite(r.shares)? String(r.shares): ''));
+            var ccy = (r.price_currency || r.currency || '').toUpperCase();
+            tr.appendChild(td(ccy));
+            tr.appendChild(td(isFinite(r.price)? Number(r.price).toFixed(2): ''));
+            tr.appendChild(td(isFinite(r.jpy)? Math.round(Number(r.jpy)).toLocaleString(): ''));
+            var p = Number(r.jpy);
+            tr.appendChild(tdPct(pct(r.jpy_1m, p)));
+            tr.appendChild(tdPct(pct(r.jpy_3m, p)));
+            tr.appendChild(tdPct(pct(r.jpy_6m, p)));
+            tr.appendChild(tdPct(pct(r.jpy_1y, p)));
+            tr.appendChild(tdPct(pct(r.jpy_3y, p)));
+            var up = r.updated_at ? String(r.updated_at).replace('T',' ').replace('Z','') : '';
+            tr.appendChild(td(up));
+            tbody.appendChild(tr);
+          });
+          if (title) title.style.display='';
+          if (wrap) wrap.style.display='';
+        }catch(e){ console.warn('db snapshot failed', e); if(title) title.style.display='none'; if(wrap) wrap.style.display='none'; }
+      }
+      window.loadDbSnapshot = loadDbSnapshot;
+      var btn = document.getElementById('db-snap-refresh');
+      if (btn) btn.addEventListener('click', function(){ loadDbSnapshot(); });
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadDbSnapshot); else loadDbSnapshot();
+    })();
+  </script>
+</div>
 </body>
 </html>
