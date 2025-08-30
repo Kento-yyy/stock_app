@@ -18,13 +18,13 @@ export default {
         if (request.method === 'GET') {
           try {
             const { results } = await env.DB.prepare(
-              'SELECT symbol, price, currency, jpy, updated_at, ' +
-              'price_1d, jpy_1d, updated_1d_at, ' +
-              'price_1m, jpy_1m, updated_1m_at, ' +
-              'price_3m, jpy_3m, updated_3m_at, ' +
-              'price_6m, jpy_6m, updated_6m_at, ' +
-              'price_1y, jpy_1y, updated_1y_at, ' +
-              'price_3y, jpy_3y, updated_3y_at ' +
+              'SELECT symbol, price, currency, jpy, usd, updated_at, ' +
+              'price_1d, jpy_1d, usd_1d, updated_1d_at, ' +
+              'price_1m, jpy_1m, usd_1m, updated_1m_at, ' +
+              'price_3m, jpy_3m, usd_3m, updated_3m_at, ' +
+              'price_6m, jpy_6m, usd_6m, updated_6m_at, ' +
+              'price_1y, jpy_1y, usd_1y, updated_1y_at, ' +
+              'price_3y, jpy_3y, usd_3y, updated_3y_at ' +
               'FROM quotes ORDER BY symbol'
             ).all();
             return json(results);
@@ -53,14 +53,15 @@ export default {
                     h.company_name AS company_name,
                     q.price,
                     q.jpy,
+                    q.usd,
                     q.currency AS price_currency,
                     q.updated_at,
-                    q.price_1d, q.jpy_1d, q.updated_1d_at,
-                    q.price_1m, q.jpy_1m, q.updated_1m_at,
-                    q.price_3m, q.jpy_3m, q.updated_3m_at,
-                    q.price_6m, q.jpy_6m, q.updated_6m_at,
-                    q.price_1y, q.jpy_1y, q.updated_1y_at,
-                    q.price_3y, q.jpy_3y, q.updated_3y_at
+                    q.price_1d, q.jpy_1d, q.usd_1d, q.updated_1d_at,
+                    q.price_1m, q.jpy_1m, q.usd_1m, q.updated_1m_at,
+                    q.price_3m, q.jpy_3m, q.usd_3m, q.updated_3m_at,
+                    q.price_6m, q.jpy_6m, q.usd_6m, q.updated_6m_at,
+                    q.price_1y, q.jpy_1y, q.usd_1y, q.updated_1y_at,
+                    q.price_3y, q.jpy_3y, q.usd_3y, q.updated_3y_at
                FROM holdings h
                LEFT JOIN quotes q ON q.symbol = h.symbol
                ORDER BY h.symbol`
@@ -355,32 +356,32 @@ async function reorderQuotes(env){
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS quotes ('+
     'symbol TEXT PRIMARY KEY, '+
-    'price REAL, currency TEXT, jpy REAL, updated_at TEXT, '+
-    'price_1d REAL, jpy_1d REAL, updated_1d_at TEXT, '+
-    'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, '+
-    'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, '+
-    'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, '+
-    'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, '+
-    'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
+    'price REAL, currency TEXT, jpy REAL, usd REAL, updated_at TEXT, '+
+    'price_1d REAL, jpy_1d REAL, usd_1d REAL, updated_1d_at TEXT, '+
+    'price_1m REAL, jpy_1m REAL, usd_1m REAL, updated_1m_at TEXT, '+
+    'price_3m REAL, jpy_3m REAL, usd_3m REAL, updated_3m_at TEXT, '+
+    'price_6m REAL, jpy_6m REAL, usd_6m REAL, updated_6m_at TEXT, '+
+    'price_1y REAL, jpy_1y REAL, usd_1y REAL, updated_1y_at TEXT, '+
+    'price_3y REAL, jpy_3y REAL, usd_3y REAL, updated_3y_at TEXT)'
   ).run();
   try {
     await env.DB.prepare(
       'INSERT INTO quotes('+
-        'symbol, price, currency, jpy, updated_at, '+
-        'price_1d, jpy_1d, updated_1d_at, '+
-        'price_1m, jpy_1m, updated_1m_at, '+
-        'price_3m, jpy_3m, updated_3m_at, '+
-        'price_6m, jpy_6m, updated_6m_at, '+
-        'price_1y, jpy_1y, updated_1y_at, '+
-        'price_3y, jpy_3y, updated_3y_at'+
+        'symbol, price, currency, jpy, usd, updated_at, '+
+        'price_1d, jpy_1d, usd_1d, updated_1d_at, '+
+        'price_1m, jpy_1m, usd_1m, updated_1m_at, '+
+        'price_3m, jpy_3m, usd_3m, updated_3m_at, '+
+        'price_6m, jpy_6m, usd_6m, updated_6m_at, '+
+        'price_1y, jpy_1y, usd_1y, updated_1y_at, '+
+        'price_3y, jpy_3y, usd_3y, updated_3y_at'+
       ') SELECT '+
-        'symbol, price, currency, jpy, updated_at, '+
-        'price_1d, jpy_1d, updated_1d_at, '+
-        'price_1m, jpy_1m, updated_1m_at, '+
-        'price_3m, jpy_3m, updated_3m_at, '+
-        'price_6m, jpy_6m, updated_6m_at, '+
-        'price_1y, jpy_1y, updated_1y_at, '+
-        'price_3y, jpy_3y, updated_3y_at FROM quotes_old'
+        'symbol, price, currency, jpy, NULL as usd, updated_at, '+
+        'price_1d, jpy_1d, NULL as usd_1d, updated_1d_at, '+
+        'price_1m, jpy_1m, NULL as usd_1m, updated_1m_at, '+
+        'price_3m, jpy_3m, NULL as usd_3m, updated_3m_at, '+
+        'price_6m, jpy_6m, NULL as usd_6m, updated_6m_at, '+
+        'price_1y, jpy_1y, NULL as usd_1y, updated_1y_at, '+
+        'price_3y, jpy_3y, NULL as usd_3y, updated_3y_at FROM quotes_old'
     ).run();
   } catch(_){ }
   try { await env.DB.prepare('DROP TABLE quotes_old').run(); } catch(_){ }
@@ -745,32 +746,39 @@ async function fetchYahooBaselines(symbols) {
 // ----------------- Refresh helpers (split current / baselines) -----------------
 async function ensureQuotesSchema(env){
   await env.DB.prepare(
-    'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, updated_at TEXT, ' +
-    'price_1d REAL, jpy_1d REAL, updated_1d_at TEXT, ' +
-    'price_1m REAL, jpy_1m REAL, updated_1m_at TEXT, ' +
-    'price_3m REAL, jpy_3m REAL, updated_3m_at TEXT, ' +
-    'price_6m REAL, jpy_6m REAL, updated_6m_at TEXT, ' +
-    'price_1y REAL, jpy_1y REAL, updated_1y_at TEXT, ' +
-    'price_3y REAL, jpy_3y REAL, updated_3y_at TEXT)'
+    'CREATE TABLE IF NOT EXISTS quotes (symbol TEXT PRIMARY KEY, price REAL, currency TEXT, jpy REAL, usd REAL, updated_at TEXT, ' +
+    'price_1d REAL, jpy_1d REAL, usd_1d REAL, updated_1d_at TEXT, ' +
+    'price_1m REAL, jpy_1m REAL, usd_1m REAL, updated_1m_at TEXT, ' +
+    'price_3m REAL, jpy_3m REAL, usd_3m REAL, updated_3m_at TEXT, ' +
+    'price_6m REAL, jpy_6m REAL, usd_6m REAL, updated_6m_at TEXT, ' +
+    'price_1y REAL, jpy_1y REAL, usd_1y REAL, updated_1y_at TEXT, ' +
+    'price_3y REAL, jpy_3y REAL, usd_3y REAL, updated_3y_at TEXT)'
   ).run();
   const addCols = [
+    "ALTER TABLE quotes ADD COLUMN usd REAL",
     "ALTER TABLE quotes ADD COLUMN price_1d REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_1d REAL",
+    "ALTER TABLE quotes ADD COLUMN usd_1d REAL",
     "ALTER TABLE quotes ADD COLUMN updated_1d_at TEXT",
     "ALTER TABLE quotes ADD COLUMN price_1m REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_1m REAL",
+    "ALTER TABLE quotes ADD COLUMN usd_1m REAL",
     "ALTER TABLE quotes ADD COLUMN updated_1m_at TEXT",
     "ALTER TABLE quotes ADD COLUMN price_3m REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_3m REAL",
+    "ALTER TABLE quotes ADD COLUMN usd_3m REAL",
     "ALTER TABLE quotes ADD COLUMN updated_3m_at TEXT",
     "ALTER TABLE quotes ADD COLUMN price_6m REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_6m REAL",
+    "ALTER TABLE quotes ADD COLUMN usd_6m REAL",
     "ALTER TABLE quotes ADD COLUMN updated_6m_at TEXT",
     "ALTER TABLE quotes ADD COLUMN price_1y REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_1y REAL",
+    "ALTER TABLE quotes ADD COLUMN usd_1y REAL",
     "ALTER TABLE quotes ADD COLUMN updated_1y_at TEXT",
     "ALTER TABLE quotes ADD COLUMN price_3y REAL",
     "ALTER TABLE quotes ADD COLUMN jpy_3y REAL",
+    "ALTER TABLE quotes ADD COLUMN usd_3y REAL",
     "ALTER TABLE quotes ADD COLUMN updated_3y_at TEXT",
   ];
   for (const sql of addCols) { try{ await env.DB.prepare(sql).run(); }catch(_){ } }
@@ -830,6 +838,7 @@ async function refreshCurrent(env, request){
     const p = Number(q.regularMarketPrice); if (!Number.isFinite(p)) continue;
     const cur = String(q.currency || '').toUpperCase() || null;
     let jpy = null; if (cur === 'JPY' || /\.T$/i.test(s)) jpy = p; else if (cur === 'USD' && Number.isFinite(usdJpy)) jpy = p * usdJpy;
+    let usd = null; if (cur === 'USD') usd = p; else if ((cur === 'JPY' || /\.T$/i.test(s)) && Number.isFinite(usdJpy)) usd = p / usdJpy;
     // 1D baselines from prevClose if available
     let p1d = null, j1d = null;
     const prev = Number(q.prevClose);
@@ -837,13 +846,21 @@ async function refreshCurrent(env, request){
       p1d = prev;
       if (cur === 'JPY' || /\.T$/i.test(s)) j1d = prev; else if (cur === 'USD' && Number.isFinite(usdJpy)) j1d = prev * usdJpy;
     }
+    let u1d = null;
+    if (Number.isFinite(prev)) {
+      if (cur === 'USD') u1d = prev; else if ((cur === 'JPY' || /\.T$/i.test(s)) && Number.isFinite(usdJpy)) u1d = prev / usdJpy;
+    }
     await env.DB.prepare(
-      'INSERT INTO quotes(symbol, price, currency, jpy, updated_at, price_1d, jpy_1d, updated_1d_at) VALUES(?,?,?,?,?,?,?,?) ' +
+      'INSERT INTO quotes(symbol, price, currency, jpy, usd, updated_at, price_1d, jpy_1d, usd_1d, updated_1d_at) VALUES(?,?,?,?,?,?,?,?,?,?) ' +
       'ON CONFLICT(symbol) DO UPDATE SET ' +
-      'price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, updated_at=excluded.updated_at, ' +
-      'price_1d=COALESCE(excluded.price_1d, price_1d), jpy_1d=COALESCE(excluded.jpy_1d, jpy_1d), ' +
+      'price=excluded.price, currency=excluded.currency, jpy=excluded.jpy, usd=excluded.usd, updated_at=excluded.updated_at, ' +
+      'price_1d=COALESCE(excluded.price_1d, price_1d), jpy_1d=COALESCE(excluded.jpy_1d, jpy_1d), usd_1d=COALESCE(excluded.usd_1d, usd_1d), ' +
       'updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END'
-    ).bind(s, p, cur, jpy, now, Number.isFinite(p1d)? p1d : null, Number.isFinite(j1d)? j1d : null, Number.isFinite(p1d)? now : null).run();
+    ).bind(s, p, cur, jpy, usd, now,
+           Number.isFinite(p1d)? p1d : null,
+           Number.isFinite(j1d)? j1d : null,
+           Number.isFinite(u1d)? u1d : null,
+           Number.isFinite(p1d)? now : null).run();
     updated++;
   }
   return { updated };
@@ -860,8 +877,10 @@ async function refreshBaselines(env, request){
     for (const r of results || []) { existing[String(r.symbol).toUpperCase()] = r; }
   } catch(_){}
   const today = new Date().toISOString().slice(0,10);
+  const url = new URL(request.url);
+  const force = (url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true');
   function needUpdate(sym, col){ const row = existing[sym]; const v = row && row[col]; return !v || String(v).slice(0,10) !== today; }
-  const symbols = symbolsAll.filter(s => {
+  const symbols = force ? symbolsAll : symbolsAll.filter(s => {
     const U = s.toUpperCase();
     return needUpdate(U,'updated_1m_at') || needUpdate(U,'updated_3m_at') || needUpdate(U,'updated_6m_at') || needUpdate(U,'updated_1y_at') || needUpdate(U,'updated_3y_at');
   });
@@ -895,29 +914,34 @@ async function refreshBaselines(env, request){
     const j6m = Number.isFinite(v6m) ? ((cur==='JPY'||/\.T$/i.test(s))? v6m : (Number.isFinite(usdJpy)? v6m*usdJpy : null)) : null;
     const j1y = Number.isFinite(v1y) ? ((cur==='JPY'||/\.T$/i.test(s))? v1y : (Number.isFinite(usdJpy)? v1y*usdJpy : null)) : null;
     const j3y = Number.isFinite(v3y) ? ((cur==='JPY'||/\.T$/i.test(s))? v3y : (Number.isFinite(usdJpy)? v3y*usdJpy : null)) : null;
+    const u1m = Number.isFinite(v1m) ? ((cur==='USD' && !/\.T$/i.test(s))? v1m : (Number.isFinite(usdJpy)? v1m/usdJpy : null)) : null;
+    const u3m = Number.isFinite(v3m) ? ((cur==='USD' && !/\.T$/i.test(s))? v3m : (Number.isFinite(usdJpy)? v3m/usdJpy : null)) : null;
+    const u6m = Number.isFinite(v6m) ? ((cur==='USD' && !/\.T$/i.test(s))? v6m : (Number.isFinite(usdJpy)? v6m/usdJpy : null)) : null;
+    const u1y = Number.isFinite(v1y) ? ((cur==='USD' && !/\.T$/i.test(s))? v1y : (Number.isFinite(usdJpy)? v1y/usdJpy : null)) : null;
+    const u3y = Number.isFinite(v3y) ? ((cur==='USD' && !/\.T$/i.test(s))? v3y : (Number.isFinite(usdJpy)? v3y/usdJpy : null)) : null;
     // If nothing to update, skip counting
     if (!Number.isFinite(v1m) && !Number.isFinite(v3m) && !Number.isFinite(v6m) && !Number.isFinite(v1y) && !Number.isFinite(v3y)) continue;
     await env.DB.prepare(
       'INSERT INTO quotes('+
-        'symbol, price_1m, jpy_1m, updated_1m_at, '+
-        'price_3m, jpy_3m, updated_3m_at, '+
-        'price_6m, jpy_6m, updated_6m_at, '+
-        'price_1y, jpy_1y, updated_1y_at, '+
-        'price_3y, jpy_3y, updated_3y_at'+
-      ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
+        'symbol, price_1m, jpy_1m, usd_1m, updated_1m_at, '+
+        'price_3m, jpy_3m, usd_3m, updated_3m_at, '+
+        'price_6m, jpy_6m, usd_6m, updated_6m_at, '+
+        'price_1y, jpy_1y, usd_1y, updated_1y_at, '+
+        'price_3y, jpy_3y, usd_3y, updated_3y_at'+
+      ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
       'ON CONFLICT(symbol) DO UPDATE SET '+
-      'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, '+
-      'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, '+
-      'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, '+
-      'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, '+
-      'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
+      'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), usd_1m=COALESCE(excluded.usd_1m, usd_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, '+
+      'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), usd_3m=COALESCE(excluded.usd_3m, usd_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, '+
+      'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), usd_6m=COALESCE(excluded.usd_6m, usd_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, '+
+      'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), usd_1y=COALESCE(excluded.usd_1y, usd_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, '+
+      'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), usd_3y=COALESCE(excluded.usd_3y, usd_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
     ).bind(
       s,
-      Number.isFinite(v1m)? v1m : null, j1m, Number.isFinite(v1m)? now : null,
-      Number.isFinite(v3m)? v3m : null, j3m, Number.isFinite(v3m)? now : null,
-      Number.isFinite(v6m)? v6m : null, j6m, Number.isFinite(v6m)? now : null,
-      Number.isFinite(v1y)? v1y : null, j1y, Number.isFinite(v1y)? now : null,
-      Number.isFinite(v3y)? v3y : null, j3y, Number.isFinite(v3y)? now : null
+      Number.isFinite(v1m)? v1m : null, j1m, u1m, Number.isFinite(v1m)? now : null,
+      Number.isFinite(v3m)? v3m : null, j3m, u3m, Number.isFinite(v3m)? now : null,
+      Number.isFinite(v6m)? v6m : null, j6m, u6m, Number.isFinite(v6m)? now : null,
+      Number.isFinite(v1y)? v1y : null, j1y, u1y, Number.isFinite(v1y)? now : null,
+      Number.isFinite(v3y)? v3y : null, j3y, u3y, Number.isFinite(v3y)? now : null
     ).run();
     updated++;
   }
