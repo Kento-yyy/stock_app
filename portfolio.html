@@ -18,8 +18,18 @@
   <script>
     (function(){
       const params = new URLSearchParams(location.search);
-      const API_BASE = (params.get('api') || '').replace(/\/$/, '');
-      const apiUrl = (p) => (API_BASE ? API_BASE + p : p);
+      const RAW_API = (params.get('api') || '').replace(/\/$/, '');
+      const workerBase = (()=>{
+        if (!RAW_API) return '';
+        try{
+          const u = new URL(RAW_API, location.origin);
+          if (/\/quote(\/.+)?$/i.test(u.pathname)){
+            u.pathname = u.pathname.replace(/\/quote(\/.+)?$/i, '/');
+          }
+          return u.toString().replace(/\/$/, '');
+        }catch(_){ return RAW_API.replace(/\/quote(\/.+)?$/i, ''); }
+      })();
+      const apiUrl = (p) => (workerBase ? workerBase + p : p);
 
       const $btn = document.getElementById('refresh');
       $btn.onclick = async () => {
@@ -41,6 +51,7 @@
       async function load(){
         const res = await fetch(apiUrl('/api/portfolio_with_prices'));
         const rows = await res.json();
+        if (!Array.isArray(rows)) { throw new Error('API returned non-array: ' + JSON.stringify(rows).slice(0,200)); }
         const table = document.getElementById('portfolio');
         table.innerHTML = '';
         const thead = document.createElement('thead');
