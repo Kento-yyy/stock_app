@@ -292,6 +292,10 @@
     async function refresh(){
       var btn = document.getElementById('pf-refresh'); if(btn){ btn.disabled=true; btn.textContent='更新中…'; }
       try{
+        var base = getWorkerBase();
+        if (base) {
+          try{ await fetch(base + '/api/quotes/refresh-current', { method: 'POST' }); }catch(e){}
+        }
         var holdings = await fetchHoldings();
         var quotes = await fetchQuotes();
         // Build maps and fx
