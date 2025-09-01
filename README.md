@@ -54,9 +54,8 @@
     - 内部で `wrangler deploy --name tight-truth-243e` を `proxy/` ディレクトリで実行します。
 
 注意（Fundamentalsについて）
-- Fundamentals（純利益・発行済株式数など）のAPI自動取得は廃止しました。
-- 行の作成は `/admin/fundamentals-sync`、値の投入は手動で `/api/fundamentals` にPOSTしてください。
-- 以前の自動バックフィル用エンドポイントは削除済みです。
+- Fundamentals（純利益・発行済株式数など）のAPI自動取得やDB更新機能は廃止しました。
+- データの追加や更新は Cloudflare D1 を直接操作して行ってください。
 
 
 **混在ポートフォリオ（米国株+日本株）**
