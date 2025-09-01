@@ -122,6 +122,7 @@
 
 ## ファイル構成
 - `report.html` — メインのページ
+- `report_db.html` — DBから読み込むポートフォリオ（アクセス時に現在価格を更新）
 - `service-worker.js` — オフライン用の Service Worker
 - `manifest.webmanifest` — PWA 用マニフェスト
 - `proxy/worker.js` — Cloudflare Workers 用プロキシ API (任意)
