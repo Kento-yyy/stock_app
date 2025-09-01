@@ -159,6 +159,7 @@
 
       return {
         symbol: sym,
+        company_name: (h && h.company_name) ? String(h.company_name) : '',
         shares: shares,
         usdPrice: usdP,
         per: Number.isFinite(per) ? per : null,
@@ -185,7 +186,9 @@
       var sumUsd = 0, sumJpy = 0;
       rows.forEach(function(r){
         var tr = document.createElement('tr');
-        tr.appendChild(trText(r.symbol));
+        var symText = r.symbol;
+        if (r.company_name) symText += ' ' + r.company_name;
+        tr.appendChild(trText(symText));
         var tdShares = document.createElement('td');
         if (Number.isFinite(r.shares)) { tdShares.textContent = String(r.shares); tdShares.setAttribute('data-value', String(r.shares)); }
         else { tdShares.textContent = ''; tdShares.setAttribute('data-value',''); }
