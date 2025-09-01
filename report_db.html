@@ -19,6 +19,7 @@
     .chg .down { color:#c00; }
     .sortable { cursor: pointer; }
     .sort-indicator { margin-left: 6px; color: #888; font-size: 11px; }
+    .company-name { color:#888; font-size:12px; margin-left:4px; }
   </style>
   <script>
   (function(){
@@ -186,9 +187,18 @@
       var sumUsd = 0, sumJpy = 0;
       rows.forEach(function(r){
         var tr = document.createElement('tr');
-        var symText = r.symbol;
-        if (r.company_name) symText += ' ' + r.company_name;
-        tr.appendChild(trText(symText));
+        var tdSym = document.createElement('td');
+        tdSym.setAttribute('data-value', r.symbol);
+        var symSpan = document.createElement('span');
+        symSpan.textContent = r.symbol;
+        tdSym.appendChild(symSpan);
+        if (r.company_name) {
+          var nameSpan = document.createElement('span');
+          nameSpan.textContent = r.company_name;
+          nameSpan.className = 'company-name';
+          tdSym.appendChild(nameSpan);
+        }
+        tr.appendChild(tdSym);
         var tdShares = document.createElement('td');
         if (Number.isFinite(r.shares)) { tdShares.textContent = String(r.shares); tdShares.setAttribute('data-value', String(r.shares)); }
         else { tdShares.textContent = ''; tdShares.setAttribute('data-value',''); }
@@ -292,6 +302,44 @@
       }catch(e){}
     }
 
+    async function fetchAndRender(){
+      var holdings = await fetchHoldings();
+      var quotes = await fetchQuotes();
+      // Build maps and fx
+      var maps = buildMaps(holdings, quotes);
+      var qmap = maps.qmap, hmap = maps.hmap;
+      var fx = computeFx(qmap);
+      var fundMap = await fetchFundamentals().catch(function(){ return {}; });
+      // Build computed rows for JP and US
+      var syms = Object.keys(hmap).filter(function(s){ return s !== 'USDJPY=X'; }).sort();
+      var jpRows = [], usRows = [];
+      syms.forEach(function(s){
+        var h = hmap[s]; var q = qmap[s] || null;
+        var r = computeRow(s, h, q, fx, fundMap);
+        if (isJpx(s)) jpRows.push(r); else usRows.push(r);
+      });
+      // Render tables
+      var jpTbody = document.querySelector('#pf-jp tbody');
+      var usTbody = document.querySelector('#pf-us tbody');
+      var jpUsdTot = document.querySelector('#pf-jp tfoot td[data-key="USD_VALUE"]');
+      var jpJpyTot = document.querySelector('#pf-jp tfoot td[data-key="JPY_VALUE"]');
+      var usUsdTot = document.querySelector('#pf-us tfoot td[data-key="USD_VALUE"]');
+      var usJpyTot = document.querySelector('#pf-us tfoot td[data-key="JPY_VALUE"]');
+      var r1 = renderTable(jpRows, jpTbody, { usdEl: jpUsdTot, jpyEl: jpJpyTot });
+      var r2 = renderTable(usRows, usTbody, { usdEl: usUsdTot, jpyEl: usJpyTot });
+      // Re-apply saved sorts
+      applySavedSort(document.getElementById('pf-jp'));
+      applySavedSort(document.getElementById('pf-us'));
+      // Overall totals
+      var oUsd = (Number.isFinite(r1.usd)? r1.usd:0) + (Number.isFinite(r2.usd)? r2.usd:0);
+      var oJpy = (Number.isFinite(r1.jpy)? r1.jpy:0) + (Number.isFinite(r2.jpy)? r2.jpy:0);
+      var oUsdEl = document.querySelector('#pf-total tfoot td[data-key="USD_VALUE"]');
+      var oJpyEl = document.querySelector('#pf-total tfoot td[data-key="JPY_VALUE"]');
+      if (oUsdEl) oUsdEl.textContent = fmtUSD(oUsd);
+      if (oJpyEl) oJpyEl.textContent = fmtJPY(oJpy);
+      // Timestamp
+      var last = document.getElementById('pf-lastup'); if(last) last.textContent = '最終更新: ' + dateOnly();
+    }
     async function refresh(){
       var btn = document.getElementById('pf-refresh'); if(btn){ btn.disabled=true; btn.textContent='更新中…'; }
       try{
@@ -299,46 +347,18 @@
         if (base) {
           try{ await fetch(base + '/api/quotes/refresh-current', { method: 'POST' }); }catch(e){}
         }
-        var holdings = await fetchHoldings();
-        var quotes = await fetchQuotes();
-        // Build maps and fx
-        var maps = buildMaps(holdings, quotes);
-        var qmap = maps.qmap, hmap = maps.hmap;
-        var fx = computeFx(qmap);
-        var fundMap = await fetchFundamentals().catch(function(){ return {}; });
-        // Build computed rows for JP and US
-        var syms = Object.keys(hmap).filter(function(s){ return s !== 'USDJPY=X'; }).sort();
-        var jpRows = [], usRows = [];
-        syms.forEach(function(s){
-          var h = hmap[s]; var q = qmap[s] || null;
-          var r = computeRow(s, h, q, fx, fundMap);
-          if (isJpx(s)) jpRows.push(r); else usRows.push(r);
-        });
-        // Render tables
-        var jpTbody = document.querySelector('#pf-jp tbody');
-        var usTbody = document.querySelector('#pf-us tbody');
-        var jpUsdTot = document.querySelector('#pf-jp tfoot td[data-key="USD_VALUE"]');
-        var jpJpyTot = document.querySelector('#pf-jp tfoot td[data-key="JPY_VALUE"]');
-        var usUsdTot = document.querySelector('#pf-us tfoot td[data-key="USD_VALUE"]');
-        var usJpyTot = document.querySelector('#pf-us tfoot td[data-key="JPY_VALUE"]');
-        var r1 = renderTable(jpRows, jpTbody, { usdEl: jpUsdTot, jpyEl: jpJpyTot });
-        var r2 = renderTable(usRows, usTbody, { usdEl: usUsdTot, jpyEl: usJpyTot });
-        // Re-apply saved sorts
-        applySavedSort(document.getElementById('pf-jp'));
-        applySavedSort(document.getElementById('pf-us'));
-        // Overall totals
-        var oUsd = (Number.isFinite(r1.usd)? r1.usd:0) + (Number.isFinite(r2.usd)? r2.usd:0);
-        var oJpy = (Number.isFinite(r1.jpy)? r1.jpy:0) + (Number.isFinite(r2.jpy)? r2.jpy:0);
-        var oUsdEl = document.querySelector('#pf-total tfoot td[data-key="USD_VALUE"]');
-        var oJpyEl = document.querySelector('#pf-total tfoot td[data-key="JPY_VALUE"]');
-        if (oUsdEl) oUsdEl.textContent = fmtUSD(oUsd);
-        if (oJpyEl) oJpyEl.textContent = fmtJPY(oJpy);
-        // Timestamp
-        var last = document.getElementById('pf-lastup'); if(last) last.textContent = '最終更新: ' + dateOnly();
+        await fetchAndRender();
       }catch(e){
         var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;
       } finally {
         if(btn){ btn.disabled=false; btn.textContent='更新'; }
+      }
+    }
+    async function initialLoad(){
+      try{
+        await fetchAndRender();
+      }catch(e){
+        var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;
       }
     }
     function ready(){
@@ -346,7 +366,7 @@
       attachSortHandlers(document.getElementById('pf-jp'));
       attachSortHandlers(document.getElementById('pf-us'));
       var btn = document.getElementById('pf-refresh'); if(btn) btn.addEventListener('click', refresh);
-      refresh();
+      initialLoad().then(refresh);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
   })();
