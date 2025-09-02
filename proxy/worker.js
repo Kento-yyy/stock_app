@@ -895,6 +895,7 @@ async function loadSymbols(env, request){
 }
 
 async function refreshCurrent(env, request, table = 'quotes'){
+  const tables = table === 'quotes' ? ['quotes', 'quotes_new'] : [table];
   let symbols = await loadSymbols(env, request);
   if (!symbols.length) return { updated: 0 };
   if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
@@ -926,7 +927,7 @@ async function refreshCurrent(env, request, table = 'quotes'){
     quotes['USDJPY=X'].currency = 'JPY';
   }
   for (const s of Object.keys(quotes)) { if (/\.T$/i.test(s)) quotes[s].currency = 'JPY'; }
-  await ensureQuotesSchema(env, table);
+  for (const t of tables) { await ensureQuotesSchema(env, t); }
   await ensureUsdJpySchema(env);
   const now = new Date().toISOString();
   let updated = 0;
@@ -944,20 +945,23 @@ async function refreshCurrent(env, request, table = 'quotes'){
     const p = Number(q.regularMarketPrice); if (!Number.isFinite(p)) continue;
     const cur = String(q.currency || '').toUpperCase() || null;
     const prev = Number(q.prevClose);
-    await env.DB.prepare(
-      `INSERT INTO ${table}(symbol, price, currency, updated_at, price_1d, updated_1d_at) VALUES(?,?,?,?,?,?) ` +
-      `ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at, price_1d=COALESCE(excluded.price_1d, price_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END`
-    ).bind(s, p, cur, now, Number.isFinite(prev)?prev:null, Number.isFinite(prev)?now:null).run();
+    for (const t of tables) {
+      await env.DB.prepare(
+        `INSERT INTO ${t}(symbol, price, currency, updated_at, price_1d, updated_1d_at) VALUES(?,?,?,?,?,?) ` +
+        `ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at, price_1d=COALESCE(excluded.price_1d, price_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END`
+      ).bind(s, p, cur, now, Number.isFinite(prev)?prev:null, Number.isFinite(prev)?now:null).run();
+    }
     updated++;
   }
   return { updated };
 }
 
 async function refreshBaselines(env, request, table = 'quotes'){
+  const tables = table === 'quotes' ? ['quotes', 'quotes_new'] : [table];
   const symbols = await loadSymbols(env, request);
   if (!symbols.length) return { updated: 0 };
   if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
-  await ensureQuotesSchema(env, table);
+  for (const t of tables) { await ensureQuotesSchema(env, t); }
   await ensureUsdJpySchema(env);
   let bases = {};
   try { bases = await fetchYahooBaselines(symbols); } catch(_){ }
@@ -976,10 +980,12 @@ async function refreshBaselines(env, request, table = 'quotes'){
       updated++;
       continue;
     }
-    await env.DB.prepare(
-      `INSERT INTO ${table}(symbol, price_1m, price_1y, updated_1m_at, updated_1y_at) VALUES(?,?,?,?,?) ` +
-      `ON CONFLICT(symbol) DO UPDATE SET price_1m=COALESCE(excluded.price_1m, price_1m), price_1y=COALESCE(excluded.price_1y, price_1y), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END`
-    ).bind(s, Number.isFinite(v1m)?v1m:null, Number.isFinite(v1y)?v1y:null, Number.isFinite(v1m)?now:null, Number.isFinite(v1y)?now:null).run();
+    for (const t of tables) {
+      await env.DB.prepare(
+        `INSERT INTO ${t}(symbol, price_1m, price_1y, updated_1m_at, updated_1y_at) VALUES(?,?,?,?,?) ` +
+        `ON CONFLICT(symbol) DO UPDATE SET price_1m=COALESCE(excluded.price_1m, price_1m), price_1y=COALESCE(excluded.price_1y, price_1y), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END`
+      ).bind(s, Number.isFinite(v1m)?v1m:null, Number.isFinite(v1y)?v1y:null, Number.isFinite(v1m)?now:null, Number.isFinite(v1y)?now:null).run();
+    }
     updated++;
   }
   return { updated };
