@@ -88,37 +88,37 @@
   - 共有メニュー > 「ホーム画面に追加」。
 - オフライン: HTTPS配信時にservice workerが有効になり、`report.html` はオフラインでも開けます。追加でキャッシュしたいファイルがあれば `service-worker.js` の `PRECACHE_URLS` に追記してください。
 - アイコン: iOSのホームアイコンをカスタムしたい場合は `icons/apple-touch-icon.png` を用意し、`report.html` の `apple-touch-icon` リンク先に置いてください（未設定でも動作します）。
-- 自動更新: ページ表示時・復帰時にYahoo Financeの公開エンドポイントから最新株価および `USDJPY=X` を取得し、表の `USD_PRICE/JPY_PRICE/…_VALUE` を更新します。ネットワークやCORSで失敗した場合、右上の「更新」ボタンから再試行できます。
-  - CORS対策: Yahooがブロックされた場合は自動で Stooq（`stooq.com`）にフォールバックします（USは `*.us`、東証は `.T`→`*.jp` で取得、為替は `usdjpy`）。一部銘柄は取得できない可能性があります。
+- 自動更新: ページ表示時・復帰時に Yahoo Finance の公開エンドポイントから最新株価および `USDJPY=X` を取得し、表を更新します。ネットワークや CORS の都合で失敗する場合は、右上の「更新」ボタンから再試行するか、下記の Cloudflare Workers API を利用してください（Yahoo のみ対応）。
 
-### CORSで失敗する場合の確実策（Cloudflare Workers 代理API）
+### Cloudflare Workers API（D1 + Yahoo, CORS回避）
 
-1. Cloudflareのアカウントを作成し、Workers（無料枠）で新規Workerを作成。
-2. `proxy/worker.js` の内容をCloudflare Workersに貼り付けてデプロイ。
-   - エンドポイントは例: `https://your-subdomain.workers.dev/quote`（GET, `?symbols=AAPL,8306.T,USDJPY=X`）
-3. `report.html` にクエリでAPIを指定してアクセス:
-   - 例: `https://<yourname>.github.io/<repo>/report.html?api=https://your-subdomain.workers.dev/quote`
-   - またはページ内で `localStorage.PF_API_BASE = 'https://your-subdomain.workers.dev/quote'` を一度設定。
+Yahoo のみを使用する D1 連携 API を用意しています。CORS 回避とベースライン埋め（前日/1ヶ月/1年）に対応します。
 
-この代理APIはCORSヘッダを付け、Yahoo→Stooqの順に取得してJSONを返します。レスポンスは60秒程度キャッシュされます。
+セットアップ
+- `proxy/wrangler.toml` の D1 バインド `binding = "DB"` を自分の DB に合わせる。
+- スキーマ適用: `wrangler d1 execute <db-name> --file ./schema.sql --remote`
+- デプロイ: `cd proxy && wrangler deploy`
+- 15分ごと自動更新（cron）は wrangler.toml の `[triggers] crons = ["*/15 * * * *"]` で有効。
 
-**代理APIのレスポンスについて（DoD/MoM/YoY対応）**
-- `quotes[SYMBOL]` には下記の代表フィールドが含まれます:
-  - `regularMarketPrice`: 現在値（元通貨）
-  - `currency`: 通貨コード（`USD`/`JPY` など）
-  - `prevClose`: 前日終値（元通貨）
-  - `prevClose30d`/`prevClose365d`: 約30日前/365日前の基準終値（元通貨）
-  - `jpy`: 現在値のJPY換算（`.T` はそのまま、その他は現在のUSDJPYで近似換算）
-  - `prevJpy`/`prevJpy30d`/`prevJpy365d`: 上記基準値のJPY換算（近似）
-  - 変化率（小数、例: `0.045` は +4.5%）
-    - `usdDoD` / `usdMoM` / `usdYoY`
-    - `jpyDoD` / `jpyMoM` / `jpyYoY`
+API エンドポイント（例: `https://<your-worker>.workers.dev`）
+- `GET /api/portfolio`: 保有銘柄の一覧を返す。
+- `POST /api/portfolio` JSON: `{symbol, shares, currency, company_name?}` を upsert。
+- `DELETE /api/portfolio?symbol=XXXX`: 保有銘柄を削除。
+- `GET /api/quotes_new`: 価格・通貨・更新時刻に加え、`price_1d/1m/1y` と各 `_at` を返す（null にならないよう補完）。
+- `POST /api/quotes/refresh`:
+  - Yahoo Finance から現在値とベースラインを更新（自動で `USDJPY=X` も含む）。
+  - オプション: `?symbols=AAPL,7203.T` で対象銘柄を指定、`&dry=1` で書き込まずサンプル返却。
+- `GET /api/portfolio_with_prices`: holdings × quotes_new を結合し、JPY換算も含めて返す。
+- `GET /api/debug/yahoo?symbols=...`: Yahoo 到達性の簡易チェック。
 
-注意: USD資産のJPY側の基準値は「現在の為替」で近似換算しているため、過去時点の為替を厳密に反映した変化率ではありません（比率は換算係数が同じためUSD/JPYとも同一になります）。
+備考
+- 取得は Yahoo のみ。Stooq フォールバックは廃止しました。
+- Worker のリクエストは Firefox の UA、`Accept-Language: ja,...`、`Referer: https://finance.yahoo.com/` を付加します。
+- ベースラインは Yahoo Chart API（日足2年）から推定し、欠損時も `price/last` で補完します。
 
 # stock
 
-このリポジトリは静的なポートフォリオレポートを提供する Web アプリです。`report.html` をブラウザで開くと、Yahoo Finance または Stooq から最新株価や USD/JPY 為替レートを取得し、表を更新します。PWA 対応のため、ホーム画面に追加してオフラインでも利用できます。
+このリポジトリは静的なポートフォリオレポートを提供する Web アプリです。`report.html` をブラウザで開くと、Yahoo Finance から最新株価や USD/JPY 為替レートを取得し、表を更新します。CORS 回避やベースラインの堅牢化が必要な場合は上記の Cloudflare Workers API を利用できます。PWA 対応のため、ホーム画面に追加してオフラインでも利用できます。
 
 ## ファイル構成
 - `report.html` — メインのページ
@@ -132,7 +132,7 @@
 ## 使い方
 1. GitHub Pages など任意の静的ホスティングに本リポジトリを配置します。
 2. `report.html` をブラウザで開くだけで最新価格が表示されます。
-3. CORS 回避が必要な場合は Cloudflare Workers に `proxy/worker.js` をデプロイし、`report.html?api=https://your-subdomain.workers.dev/quote` のように `api` クエリで指定します。
+3. CORS 回避や D1 連携を使う場合は Cloudflare Workers に `proxy/worker.js` をデプロイし、`report_db.html?api=https://<your-worker>.workers.dev` のように `api` クエリで指定します。
 
 ## PWA とオフライン
 - HTTPS で配信すると Service Worker が有効になり、`report.html` をオフラインでも表示できます。
