@@ -11,7 +11,7 @@ export default {
       const isPreflight = request.method === 'OPTIONS';
       const hasValidKey = () => {
         const need = (env.API_KEY && String(env.API_KEY).length > 0);
-        if (!need) return false;
+        if (!need) return true;
         const got = request.headers.get('x-api-key');
         return !!got && got === String(env.API_KEY);
       };
