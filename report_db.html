@@ -345,12 +345,26 @@
       try{
         var base = getWorkerBase();
         if (!base) return;
-        var key = 'PF_BASELINES_REFRESHED_AT';
-        var now = Date.now();
-        var last = Number(localStorage.getItem(key));
-        if (!last || (now - last) >= 86400000){
+        var need = false;
+        try{
+          var r = await fetch(base + '/api/quotes');
+          if (r && r.ok){
+            var arr = await r.json();
+            var now = Date.now();
+            var fields = ['updated_1d_at','updated_1m_at','updated_3m_at','updated_6m_at','updated_1y_at','updated_3y_at'];
+            outer: for (var i=0; i<arr.length; i++){
+              var q = arr[i];
+              for (var j=0; j<fields.length; j++){
+                var t = q[fields[j]];
+                if (!t || (now - Date.parse(t)) >= 86400000){ need = true; break outer; }
+              }
+            }
+          } else {
+            need = true;
+          }
+        }catch(e){ need = true; }
+        if (need){
           try{ await fetch(base + '/api/quotes/refresh-baselines', { method: 'POST' }); }catch(e){}
-          localStorage.setItem(key, String(now));
         }
       }catch(_){ }
     }
@@ -358,14 +372,25 @@
       try{
         var base = getWorkerBase();
         if (!base) return;
-        var key = 'PF_CURRENT_REFRESHED_AT';
-        var now = Date.now();
-        var last = Number(localStorage.getItem(key));
-        if (!last || (now - last) >= 60000){
-          try{
-            var r = await fetch(base + '/api/quotes/refresh-current', { method: 'POST' });
-            if (r && r.ok) localStorage.setItem(key, String(now));
-          }catch(e){}
+        var need = false;
+        try{
+          var r = await fetch(base + '/api/quotes');
+          if (r && r.ok){
+            var arr = await r.json();
+            var now = Date.now();
+            outer: for (var i=0; i<arr.length; i++){
+              var q = arr[i];
+              var t = q.updated_at;
+              if (!t || (now - Date.parse(t)) >= 60000){ need = true; break outer; }
+              var t1d = q.updated_1d_at;
+              if (!t1d || (now - Date.parse(t1d)) >= 86400000){ need = true; break outer; }
+            }
+          } else {
+            need = true;
+          }
+        }catch(e){ need = true; }
+        if (need){
+          try{ await fetch(base + '/api/quotes/refresh-current', { method: 'POST' }); }catch(e){}
         }
       }catch(_){ }
     }
