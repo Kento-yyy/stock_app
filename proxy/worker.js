@@ -44,6 +44,26 @@ export default {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
         }
 
+        // Quotes_new API: return stored original currency prices and baselines
+        if (url.pathname === '/api/quotes_new') {
+          if (request.method === 'GET') {
+            try {
+              await ensureQuotesSchema(env, 'quotes_new');
+              const { results } = await env.DB.prepare(
+                'SELECT symbol, price, currency, updated_at, ' +
+                'price_1d, updated_1d_at, ' +
+                'price_1m, updated_1m_at, ' +
+                'price_1y, updated_1y_at ' +
+                'FROM quotes_new ORDER BY symbol'
+              ).all();
+              return json(results);
+            } catch (e) {
+              return json([]);
+            }
+          }
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
+        }
+
         // USDJPY rate API
         if (url.pathname === '/api/usdjpy') {
           if (request.method === 'GET') {
@@ -144,6 +164,32 @@ export default {
           return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
         }
         const r = await refreshBaselines(env, request);
+        return json({ ok: true, updated: r.updated });
+      }
+
+      if (url.pathname === '/api/quotes_new/refresh') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        const a = await refreshCurrent(env, request, 'quotes_new');
+        const b = await refreshBaselines(env, request, 'quotes_new');
+        return json({ ok: true, updated_current: a.updated, updated_baselines: b.updated });
+      }
+      if (url.pathname === '/api/quotes_new/refresh-current') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        const r = await refreshCurrent(env, request, 'quotes_new');
+        return json({ ok: true, updated: r.updated });
+      }
+      if (url.pathname === '/api/quotes_new/refresh-baselines') {
+        if (requireKey()) return json({ error: 'unauthorized' }, 401);
+        if (request.method !== 'POST' && request.method !== 'GET') {
+          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
+        }
+        const r = await refreshBaselines(env, request, 'quotes_new');
         return json({ ok: true, updated: r.updated });
       }
       // Admin: reorder DB columns by recreating tables in canonical order
@@ -799,21 +845,21 @@ async function fetchYahooBaselines(symbols) {
 }
 
 // ----------------- Refresh helpers (split current / baselines) -----------------
-async function ensureQuotesSchema(env){
+async function ensureQuotesSchema(env, table = 'quotes'){
   await env.DB.prepare(
-    'CREATE TABLE IF NOT EXISTS quotes ('+
+    `CREATE TABLE IF NOT EXISTS ${table} (`+
     'symbol TEXT PRIMARY KEY, price REAL, currency TEXT, updated_at TEXT, '+
     'price_1d REAL, updated_1d_at TEXT, '+
     'price_1m REAL, updated_1m_at TEXT, '+
     'price_1y REAL, updated_1y_at TEXT)'
   ).run();
   const addCols = [
-    "ALTER TABLE quotes ADD COLUMN price_1d REAL",
-    "ALTER TABLE quotes ADD COLUMN updated_1d_at TEXT",
-    "ALTER TABLE quotes ADD COLUMN price_1m REAL",
-    "ALTER TABLE quotes ADD COLUMN updated_1m_at TEXT",
-    "ALTER TABLE quotes ADD COLUMN price_1y REAL",
-    "ALTER TABLE quotes ADD COLUMN updated_1y_at TEXT",
+    `ALTER TABLE ${table} ADD COLUMN price_1d REAL`,
+    `ALTER TABLE ${table} ADD COLUMN updated_1d_at TEXT`,
+    `ALTER TABLE ${table} ADD COLUMN price_1m REAL`,
+    `ALTER TABLE ${table} ADD COLUMN updated_1m_at TEXT`,
+    `ALTER TABLE ${table} ADD COLUMN price_1y REAL`,
+    `ALTER TABLE ${table} ADD COLUMN updated_1y_at TEXT`,
   ];
   for (const sql of addCols) { try{ await env.DB.prepare(sql).run(); }catch(_){ } }
 }
@@ -848,7 +894,7 @@ async function loadSymbols(env, request){
   return Array.from(new Set((holdings || []).map(r => String(r.symbol || '').toUpperCase()).filter(Boolean)));
 }
 
-async function refreshCurrent(env, request){
+async function refreshCurrent(env, request, table = 'quotes'){
   let symbols = await loadSymbols(env, request);
   if (!symbols.length) return { updated: 0 };
   if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
@@ -880,7 +926,7 @@ async function refreshCurrent(env, request){
     quotes['USDJPY=X'].currency = 'JPY';
   }
   for (const s of Object.keys(quotes)) { if (/\.T$/i.test(s)) quotes[s].currency = 'JPY'; }
-  await ensureQuotesSchema(env);
+  await ensureQuotesSchema(env, table);
   await ensureUsdJpySchema(env);
   const now = new Date().toISOString();
   let updated = 0;
@@ -899,19 +945,19 @@ async function refreshCurrent(env, request){
     const cur = String(q.currency || '').toUpperCase() || null;
     const prev = Number(q.prevClose);
     await env.DB.prepare(
-      'INSERT INTO quotes(symbol, price, currency, updated_at, price_1d, updated_1d_at) VALUES(?,?,?,?,?,?) ' +
-      'ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at, price_1d=COALESCE(excluded.price_1d, price_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END'
+      `INSERT INTO ${table}(symbol, price, currency, updated_at, price_1d, updated_1d_at) VALUES(?,?,?,?,?,?) ` +
+      `ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at, price_1d=COALESCE(excluded.price_1d, price_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END`
     ).bind(s, p, cur, now, Number.isFinite(prev)?prev:null, Number.isFinite(prev)?now:null).run();
     updated++;
   }
   return { updated };
 }
 
-async function refreshBaselines(env, request){
+async function refreshBaselines(env, request, table = 'quotes'){
   const symbols = await loadSymbols(env, request);
   if (!symbols.length) return { updated: 0 };
   if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
-  await ensureQuotesSchema(env);
+  await ensureQuotesSchema(env, table);
   await ensureUsdJpySchema(env);
   let bases = {};
   try { bases = await fetchYahooBaselines(symbols); } catch(_){ }
@@ -931,8 +977,8 @@ async function refreshBaselines(env, request){
       continue;
     }
     await env.DB.prepare(
-      'INSERT INTO quotes(symbol, price_1m, price_1y, updated_1m_at, updated_1y_at) VALUES(?,?,?,?,?) ' +
-      'ON CONFLICT(symbol) DO UPDATE SET price_1m=COALESCE(excluded.price_1m, price_1m), price_1y=COALESCE(excluded.price_1y, price_1y), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END'
+      `INSERT INTO ${table}(symbol, price_1m, price_1y, updated_1m_at, updated_1y_at) VALUES(?,?,?,?,?) ` +
+      `ON CONFLICT(symbol) DO UPDATE SET price_1m=COALESCE(excluded.price_1m, price_1m), price_1y=COALESCE(excluded.price_1y, price_1y), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END`
     ).bind(s, Number.isFinite(v1m)?v1m:null, Number.isFinite(v1y)?v1y:null, Number.isFinite(v1m)?now:null, Number.isFinite(v1y)?now:null).run();
     updated++;
   }

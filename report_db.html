@@ -80,7 +80,7 @@
     }
       async function fetchQuotes(){
         var base = getWorkerBase(); if (!base) throw new Error('API未指定: ?api=...');
-        var r = await fetch(base + '/api/quotes', { cache: 'no-store' });
+        var r = await fetch(base + '/api/quotes_new', { cache: 'no-store' });
         if (!r.ok) throw new Error('HTTP '+r.status);
         var rows = await r.json();
         if (!Array.isArray(rows)) throw new Error('invalid quotes');
@@ -401,7 +401,7 @@
         if (!base) return;
         var need = false;
         try{
-          var r = await fetch(base + '/api/quotes');
+          var r = await fetch(base + '/api/quotes_new');
           if (r && r.ok){
             var arr = await r.json();
             var now = Date.now();
@@ -418,7 +418,7 @@
           }
         }catch(e){ need = true; }
         if (need){
-          try{ await fetch(base + '/api/quotes/refresh-baselines', { method: 'POST' }); }catch(e){}
+          try{ await fetch(base + '/api/quotes_new/refresh-baselines', { method: 'POST' }); }catch(e){}
         }
       }catch(_){ }
     }
@@ -428,7 +428,7 @@
         if (!base) return;
         var need = false;
         try{
-          var r = await fetch(base + '/api/quotes');
+          var r = await fetch(base + '/api/quotes_new');
           if (r && r.ok){
             var arr = await r.json();
             var now = Date.now();
@@ -444,7 +444,7 @@
           }
         }catch(e){ need = true; }
         if (need){
-          try{ await fetch(base + '/api/quotes/refresh-current', { method: 'POST' }); }catch(e){}
+          try{ await fetch(base + '/api/quotes_new/refresh-current', { method: 'POST' }); }catch(e){}
         }
       }catch(_){ }
     }
@@ -479,7 +479,7 @@
   </script>
 </head>
 <body>
-  <h2>ポートフォリオ（DB直接：holdings × quotes）</h2>
+  <h2>ポートフォリオ（DB直接：holdings × quotes_new）</h2>
   <div class="toolbar">
     <button id="pf-refresh">更新</button>
     <span class="muted" id="pf-lastup"></span>

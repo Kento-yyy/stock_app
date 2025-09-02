@@ -19,6 +19,20 @@ CREATE TABLE IF NOT EXISTS quotes (
   updated_1y_at TEXT
 );
 
+-- new quotes table for migration testing
+CREATE TABLE IF NOT EXISTS quotes_new (
+  symbol TEXT PRIMARY KEY,
+  price REAL,
+  currency TEXT,
+  updated_at TEXT,
+  price_1d REAL,
+  updated_1d_at TEXT,
+  price_1m REAL,
+  updated_1m_at TEXT,
+  price_1y REAL,
+  updated_1y_at TEXT
+);
+
 -- table dedicated to USD/JPY exchange rates
 CREATE TABLE IF NOT EXISTS usd_jpy (
   id INTEGER PRIMARY KEY,
