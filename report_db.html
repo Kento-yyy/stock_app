@@ -113,8 +113,16 @@
     }
 
       function computeFx(usdjpy){
-        var v = Number(usdjpy && usdjpy.price);
-        return Number.isFinite(v) ? v : NaN;
+        function N(x){ var n = Number(x); return Number.isFinite(n) ? n : NaN; }
+        var now = N(usdjpy && usdjpy.price);
+        var d1  = N(usdjpy && usdjpy.price_1d);
+        var m1  = N(usdjpy && usdjpy.price_1m);
+        var y1  = N(usdjpy && usdjpy.price_1y);
+        // Fallbacks: if a baseline FX is missing, use current FX to avoid NaN
+        if (!Number.isFinite(d1)) d1 = now;
+        if (!Number.isFinite(m1)) m1 = now;
+        if (!Number.isFinite(y1)) y1 = now;
+        return { now: now, d1: d1, m1: m1, y1: y1 };
       }
 
     function buildMaps(holdings, quotes){
@@ -133,10 +141,10 @@
         if (Number.isFinite(price)) {
           if (cur === 'USD') {
             usdP = price;
-            if (Number.isFinite(fx)) jpyP = price * fx;
+            if (fx && Number.isFinite(fx.now)) jpyP = price * fx.now;
           } else if (cur === 'JPY') {
             jpyP = price;
-            if (Number.isFinite(fx)) usdP = price / fx;
+            if (fx && Number.isFinite(fx.now)) usdP = price / fx.now;
           }
         }
         var p1d = parseNum(q && q.price_1d);
@@ -147,28 +155,28 @@
         if (Number.isFinite(p1d)) {
           if (cur === 'USD') {
             if (Number.isFinite(usdP)) usd1d = pct(p1d, usdP);
-            if (Number.isFinite(jpyP) && Number.isFinite(fx)) jpy1d = pct(p1d * fx, jpyP);
+            if (Number.isFinite(jpyP) && fx && Number.isFinite(fx.d1)) jpy1d = pct(p1d * fx.d1, jpyP);
           } else if (cur === 'JPY') {
             if (Number.isFinite(jpyP)) jpy1d = pct(p1d, jpyP);
-            if (Number.isFinite(usdP) && Number.isFinite(fx)) usd1d = pct(p1d / fx, usdP);
+            if (Number.isFinite(usdP) && fx && Number.isFinite(fx.d1)) usd1d = pct(p1d / fx.d1, usdP);
           }
         }
         if (Number.isFinite(p1m)) {
           if (cur === 'USD') {
             if (Number.isFinite(usdP)) usd1m = pct(p1m, usdP);
-            if (Number.isFinite(jpyP) && Number.isFinite(fx)) jpy1m = pct(p1m * fx, jpyP);
+            if (Number.isFinite(jpyP) && fx && Number.isFinite(fx.m1)) jpy1m = pct(p1m * fx.m1, jpyP);
           } else if (cur === 'JPY') {
             if (Number.isFinite(jpyP)) jpy1m = pct(p1m, jpyP);
-            if (Number.isFinite(usdP) && Number.isFinite(fx)) usd1m = pct(p1m / fx, usdP);
+            if (Number.isFinite(usdP) && fx && Number.isFinite(fx.m1)) usd1m = pct(p1m / fx.m1, usdP);
           }
         }
         if (Number.isFinite(p1y)) {
           if (cur === 'USD') {
             if (Number.isFinite(usdP)) usd1y = pct(p1y, usdP);
-            if (Number.isFinite(jpyP) && Number.isFinite(fx)) jpy1y = pct(p1y * fx, jpyP);
+            if (Number.isFinite(jpyP) && fx && Number.isFinite(fx.y1)) jpy1y = pct(p1y * fx.y1, jpyP);
           } else if (cur === 'JPY') {
             if (Number.isFinite(jpyP)) jpy1y = pct(p1y, jpyP);
-            if (Number.isFinite(usdP) && Number.isFinite(fx)) usd1y = pct(p1y / fx, usdP);
+            if (Number.isFinite(usdP) && fx && Number.isFinite(fx.y1)) usd1y = pct(p1y / fx.y1, usdP);
           }
         }
 
