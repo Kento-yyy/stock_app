@@ -57,6 +57,8 @@ export default {
         } catch (e) {}
         // ensure quotes table exists and migrated (1d/1m/3m/6m/1y/3y)
         try { await ensureQuotesSchema(env); } catch (e) {}
+        // auto-refresh outdated baselines when report_db accesses data
+        try { await refreshBaselines(env, request); } catch (e) {}
         try {
           const { results } = await env.DB.prepare(
             `SELECT h.symbol,
@@ -993,31 +995,10 @@ async function refreshCurrent(env, request){
 }
 
 async function refreshBaselines(env, request){
-  const symbolsAll = (await loadSymbols(env, request)).filter(s => s !== 'USDJPY=X');
-  if (!symbolsAll.length) return { updated: 0 };
-  // Only refresh when needed based on per-period updated_*_at date (UTC day)
-  await ensureQuotesSchema(env);
-  let existing = {};
-  try {
-    const { results } = await env.DB.prepare('SELECT symbol, updated_1d_at, updated_1m_at, updated_3m_at, updated_6m_at, updated_1y_at, updated_3y_at FROM quotes').all();
-    for (const r of results || []) { existing[String(r.symbol).toUpperCase()] = r; }
-  } catch(_){}
-  const nowTs = Date.now();
-  const url = new URL(request.url);
-  const force = (url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true');
-  function needUpdate(sym, col){
-    const row = existing[sym];
-    const v = row && row[col];
-    if (!v) return true;
-    const t = Date.parse(v);
-    if (!Number.isFinite(t)) return true;
-    return (nowTs - t) >= 86400000; // >=1 day
-  }
-  const symbols = force ? symbolsAll : symbolsAll.filter(s => {
-    const U = s.toUpperCase();
-    return needUpdate(U,'updated_1d_at') || needUpdate(U,'updated_1m_at') || needUpdate(U,'updated_3m_at') || needUpdate(U,'updated_6m_at') || needUpdate(U,'updated_1y_at') || needUpdate(U,'updated_3y_at');
-  });
+  const symbols = (await loadSymbols(env, request)).filter(s => s !== 'USDJPY=X');
   if (!symbols.length) return { updated: 0 };
+  await ensureQuotesSchema(env);
+  // Always refresh baselines for all symbols on each access
   // Get currencies + usdjpy
   let quotes = {};
   try { quotes = await fetchYahoo([...symbols, 'USDJPY=X']); } catch(_){ }
@@ -1037,7 +1018,11 @@ async function refreshBaselines(env, request){
   for (const s of symbols){
     const b = bases && bases[s] || {};
     const cur = String((quotes[s] && quotes[s].currency) || ( /\.T$/i.test(s) ? 'JPY' : 'USD')).toUpperCase();
-    const v1d = Number(b.prevClose);
+    let v1d = Number(b.prevClose);
+    if (!Number.isFinite(v1d)) {
+      const q = quotes[s];
+      if (q && Number.isFinite(q.prevClose)) v1d = Number(q.prevClose);
+    }
     const v1m = Number(b.prevClose30d);
     const v3m = Number(b.prevClose90d);
     const v6m = Number(b.prevClose180d);
