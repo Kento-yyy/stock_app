@@ -38,11 +38,19 @@
       if (!b) return null;
       try{
         var u = new URL(b, location.origin);
-        if (/\/quote(\/.+)?$/i.test(u.pathname)){
-          u.pathname = u.pathname.replace(/\/quote(\/.+)?$/i, '/');
+        // normalize: strip trailing /quote... or /api...
+        if (/\/(quote)(\/.+)?$/i.test(u.pathname)){
+          u.pathname = u.pathname.replace(/\/(quote)(\/.+)?$/i, '/');
+        }
+        if (/\/(api)(\/.+)?$/i.test(u.pathname)){
+          u.pathname = u.pathname.replace(/\/(api)(\/.+)?$/i, '/');
         }
         return u.toString().replace(/\/$/, '');
-      }catch(_){ return b.replace(/\/quote(\/.+)?$/i, ''); }
+      }catch(_){
+        return b
+          .replace(/\/(quote)(\/.+)?$/i, '')
+          .replace(/\/(api)(\/.+)?$/i, '');
+      }
     }
     function dateOnly(d){
       try{
