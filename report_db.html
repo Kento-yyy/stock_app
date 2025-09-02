@@ -78,14 +78,21 @@
       if (!Array.isArray(rows)) throw new Error('invalid holdings');
       return rows;
     }
-    async function fetchQuotes(){
-      var base = getWorkerBase(); if (!base) throw new Error('API未指定: ?api=...');
-      var r = await fetch(base + '/api/quotes', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP '+r.status);
-      var rows = await r.json();
-      if (!Array.isArray(rows)) throw new Error('invalid quotes');
-      return rows;
-    }
+      async function fetchQuotes(){
+        var base = getWorkerBase(); if (!base) throw new Error('API未指定: ?api=...');
+        var r = await fetch(base + '/api/quotes', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP '+r.status);
+        var rows = await r.json();
+        if (!Array.isArray(rows)) throw new Error('invalid quotes');
+        return rows;
+      }
+      async function fetchUsdJpy(){
+        var base = getWorkerBase(); if (!base) throw new Error('API未指定: ?api=...');
+        var r = await fetch(base + '/api/usdjpy', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP '+r.status);
+        var row = await r.json();
+        return row || {};
+      }
     async function fetchFundamentals(){
       var base = getWorkerBase(); if (!base) throw new Error('API未指定: ?api=...');
       var r = await fetch(base + '/api/fundamentals', { cache: 'no-store' });
@@ -97,10 +104,10 @@
       return m;
     }
 
-    function computeFx(_quotesMap){
-      // FXを使用しない前提。DBの usd/jpy をそのまま使う。
-      return NaN;
-    }
+      function computeFx(usdjpy){
+        var v = Number(usdjpy && usdjpy.price);
+        return Number.isFinite(v) ? v : NaN;
+      }
 
     function buildMaps(holdings, quotes){
       var hmap = {};
@@ -112,33 +119,50 @@
 
     function computeRow(sym, h, q, fx, fundMap){
       var shares = parseNum(h && h.shares);
-      // DBの usd/jpy をそのまま使用（欠損時は空表示）
-      var usdNow = parseNum(q && q.usd);
-      var jpyNow = parseNum(q && q.jpy);
-      var usdP = usdNow;
-      var jpyP = jpyNow;
-      // Graceful fallback with FX only if one side missing
-      if (!Number.isFinite(usdP) && Number.isFinite(jpyP) && Number.isFinite(fx)) {
-        usdP = jpyP / fx;
-      }
-      if (!Number.isFinite(jpyP) && Number.isFinite(usdP) && Number.isFinite(fx)) {
-        jpyP = usdP * fx;
-      }
-      // Baselines: use DB-provided usd_* and jpy_* directly
-      var u1d = parseNum(q && q.usd_1d);
-      var u1m = parseNum(q && q.usd_1m);
-      var u1y = parseNum(q && q.usd_1y);
-      var j1d = parseNum(q && q.jpy_1d);
-      var j1m = parseNum(q && q.jpy_1m);
-      var j1y = parseNum(q && q.jpy_1y);
-      var usd1d = null, usd1m = null, usd1y = null;
-      var jpy1d = null, jpy1m = null, jpy1y = null;
-      if (Number.isFinite(u1d) && Number.isFinite(usdP)) usd1d = pct(u1d, usdP);
-      if (Number.isFinite(u1m) && Number.isFinite(usdP)) usd1m = pct(u1m, usdP);
-      if (Number.isFinite(u1y) && Number.isFinite(usdP)) usd1y = pct(u1y, usdP);
-      if (Number.isFinite(j1d) && Number.isFinite(jpyP)) jpy1d = pct(j1d, jpyP);
-      if (Number.isFinite(j1m) && Number.isFinite(jpyP)) jpy1m = pct(j1m, jpyP);
-      if (Number.isFinite(j1y) && Number.isFinite(jpyP)) jpy1y = pct(j1y, jpyP);
+        var price = parseNum(q && q.price);
+        var cur = String(q && q.currency || '').toUpperCase();
+        var usdP = null, jpyP = null;
+        if (Number.isFinite(price)) {
+          if (cur === 'USD') {
+            usdP = price;
+            if (Number.isFinite(fx)) jpyP = price * fx;
+          } else if (cur === 'JPY') {
+            jpyP = price;
+            if (Number.isFinite(fx)) usdP = price / fx;
+          }
+        }
+        var p1d = parseNum(q && q.price_1d);
+        var p1m = parseNum(q && q.price_1m);
+        var p1y = parseNum(q && q.price_1y);
+        var usd1d = null, usd1m = null, usd1y = null;
+        var jpy1d = null, jpy1m = null, jpy1y = null;
+        if (Number.isFinite(p1d)) {
+          if (cur === 'USD') {
+            if (Number.isFinite(usdP)) usd1d = pct(p1d, usdP);
+            if (Number.isFinite(jpyP) && Number.isFinite(fx)) jpy1d = pct(p1d * fx, jpyP);
+          } else if (cur === 'JPY') {
+            if (Number.isFinite(jpyP)) jpy1d = pct(p1d, jpyP);
+            if (Number.isFinite(usdP) && Number.isFinite(fx)) usd1d = pct(p1d / fx, usdP);
+          }
+        }
+        if (Number.isFinite(p1m)) {
+          if (cur === 'USD') {
+            if (Number.isFinite(usdP)) usd1m = pct(p1m, usdP);
+            if (Number.isFinite(jpyP) && Number.isFinite(fx)) jpy1m = pct(p1m * fx, jpyP);
+          } else if (cur === 'JPY') {
+            if (Number.isFinite(jpyP)) jpy1m = pct(p1m, jpyP);
+            if (Number.isFinite(usdP) && Number.isFinite(fx)) usd1m = pct(p1m / fx, usdP);
+          }
+        }
+        if (Number.isFinite(p1y)) {
+          if (cur === 'USD') {
+            if (Number.isFinite(usdP)) usd1y = pct(p1y, usdP);
+            if (Number.isFinite(jpyP) && Number.isFinite(fx)) jpy1y = pct(p1y * fx, jpyP);
+          } else if (cur === 'JPY') {
+            if (Number.isFinite(jpyP)) jpy1y = pct(p1y, jpyP);
+            if (Number.isFinite(usdP) && Number.isFinite(fx)) usd1y = pct(p1y / fx, usdP);
+          }
+        }
 
       // PER: use fundamentals if available (currency-specific)
       var per = null;
@@ -306,10 +330,11 @@
     async function fetchAndRender(){
       var holdings = await fetchHoldings();
       var quotes = await fetchQuotes();
+      var usdjpy = await fetchUsdJpy();
       // Build maps and fx
       var maps = buildMaps(holdings, quotes);
       var qmap = maps.qmap, hmap = maps.hmap;
-      var fx = computeFx(qmap);
+      var fx = computeFx(usdjpy);
       var fundMap = await fetchFundamentals().catch(function(){ return {}; });
       // Build computed rows for JP and US
       var syms = Object.keys(hmap).filter(function(s){ return s !== 'USDJPY=X'; }).sort();
@@ -339,7 +364,7 @@
       if (oUsdEl) oUsdEl.textContent = fmtUSD(oUsd);
       if (oJpyEl) oJpyEl.textContent = fmtJPY(oJpy);
       // Baseline timestamps for each period
-      var bFields = ['updated_1d_at','updated_1m_at','updated_3m_at','updated_6m_at','updated_1y_at','updated_3y_at'];
+      var bFields = ['updated_1d_at','updated_1m_at','updated_1y_at'];
       var bTimes = {};
       for (var i=0; i<bFields.length; i++) bTimes[bFields[i]] = null;
       for (var i=0; i<quotes.length; i++){
