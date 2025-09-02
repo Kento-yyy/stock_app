@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
@@ -43,11 +44,11 @@
         return u.toString().replace(/\/$/, '');
       }catch(_){ return b.replace(/\/quote(\/.+)?$/i, ''); }
     }
-    function dateOnly(){
+    function dateOnly(d){
       try{
-        var d = new Date();
+        var dt = d ? new Date(d) : new Date();
         var pad = function(n){ return String(n).padStart(2,'0'); };
-        return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+        return dt.getFullYear()+"-"+pad(dt.getMonth()+1)+"-"+pad(dt.getDate());
       }catch(e){ return ''; }
     }
     function pct(from, to){
@@ -337,6 +338,34 @@
       var oJpyEl = document.querySelector('#pf-total tfoot td[data-key="JPY_VALUE"]');
       if (oUsdEl) oUsdEl.textContent = fmtUSD(oUsd);
       if (oJpyEl) oJpyEl.textContent = fmtJPY(oJpy);
+      // Baseline timestamps for each period
+      var bFields = ['updated_1d_at','updated_1m_at','updated_3m_at','updated_6m_at','updated_1y_at','updated_3y_at'];
+      var bTimes = {};
+      for (var i=0; i<bFields.length; i++) bTimes[bFields[i]] = null;
+      for (var i=0; i<quotes.length; i++){
+        var q = quotes[i];
+        if (!q) continue;
+        for (var j=0; j<bFields.length; j++){
+          var f = bFields[j];
+          var t = q[f];
+          if (!t) continue;
+          var ts = Date.parse(t);
+          if (Number.isFinite(ts) && (bTimes[f] == null || ts < bTimes[f])) bTimes[f] = ts;
+        }
+      }
+      var bEl = document.getElementById('pf-baseline-lastup');
+      if (bEl){
+        var parts = [];
+        for (var i=0; i<bFields.length; i++){
+          var f = bFields[i];
+          var ts = bTimes[f];
+          if (ts != null){
+            var label = f.replace('updated_','').replace('_at','');
+            parts.push(label + ': ' + dateOnly(ts));
+          }
+        }
+        bEl.textContent = '基準値更新: ' + parts.join(', ');
+      }
       // Timestamp
       var last = document.getElementById('pf-lastup'); if(last) last.textContent = '最終更新: ' + dateOnly();
     }
@@ -555,6 +584,7 @@
     </table>
   </div>
 
+  <p class="muted" id="pf-baseline-lastup"></p>
   <p class="muted">注: URLに ?api=https://xxx.workers.dev/quote を付けて開くとDBから読み込みます。</p>
 </body>
 </html>
