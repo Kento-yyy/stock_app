@@ -999,7 +999,7 @@ async function refreshBaselines(env, request){
   await ensureQuotesSchema(env);
   let existing = {};
   try {
-    const { results } = await env.DB.prepare('SELECT symbol, updated_1m_at, updated_3m_at, updated_6m_at, updated_1y_at, updated_3y_at FROM quotes').all();
+    const { results } = await env.DB.prepare('SELECT symbol, updated_1d_at, updated_1m_at, updated_3m_at, updated_6m_at, updated_1y_at, updated_3y_at FROM quotes').all();
     for (const r of results || []) { existing[String(r.symbol).toUpperCase()] = r; }
   } catch(_){}
   const nowTs = Date.now();
@@ -1015,7 +1015,7 @@ async function refreshBaselines(env, request){
   }
   const symbols = force ? symbolsAll : symbolsAll.filter(s => {
     const U = s.toUpperCase();
-    return needUpdate(U,'updated_1m_at') || needUpdate(U,'updated_3m_at') || needUpdate(U,'updated_6m_at') || needUpdate(U,'updated_1y_at') || needUpdate(U,'updated_3y_at');
+    return needUpdate(U,'updated_1d_at') || needUpdate(U,'updated_1m_at') || needUpdate(U,'updated_3m_at') || needUpdate(U,'updated_6m_at') || needUpdate(U,'updated_1y_at') || needUpdate(U,'updated_3y_at');
   });
   if (!symbols.length) return { updated: 0 };
   // Get currencies + usdjpy
@@ -1037,11 +1037,13 @@ async function refreshBaselines(env, request){
   for (const s of symbols){
     const b = bases && bases[s] || {};
     const cur = String((quotes[s] && quotes[s].currency) || ( /\.T$/i.test(s) ? 'JPY' : 'USD')).toUpperCase();
+    const v1d = Number(b.prevClose);
     const v1m = Number(b.prevClose30d);
     const v3m = Number(b.prevClose90d);
     const v6m = Number(b.prevClose180d);
     const v1y = Number(b.prevClose365d);
     const v3y = Number(b.prevClose1095d);
+    const j1d = Number.isFinite(v1d) ? ((cur==='JPY'||/\.T$/i.test(s))? v1d : (Number.isFinite(usdJpy)? v1d*usdJpy : null)) : null;
     const j1m = Number.isFinite(v1m) ? ((cur==='JPY'||/\.T$/i.test(s))? v1m : (Number.isFinite(usdJpy)? v1m*usdJpy : null)) : null;
     const j3m = Number.isFinite(v3m) ? ((cur==='JPY'||/\.T$/i.test(s))? v3m : (Number.isFinite(usdJpy)? v3m*usdJpy : null)) : null;
     const j6m = Number.isFinite(v6m) ? ((cur==='JPY'||/\.T$/i.test(s))? v6m : (Number.isFinite(usdJpy)? v6m*usdJpy : null)) : null;
@@ -1052,17 +1054,20 @@ async function refreshBaselines(env, request){
     const u6m = Number.isFinite(v6m) ? ((cur==='USD' && !/\.T$/i.test(s))? v6m : (Number.isFinite(usdJpy)? v6m/usdJpy : null)) : null;
     const u1y = Number.isFinite(v1y) ? ((cur==='USD' && !/\.T$/i.test(s))? v1y : (Number.isFinite(usdJpy)? v1y/usdJpy : null)) : null;
     const u3y = Number.isFinite(v3y) ? ((cur==='USD' && !/\.T$/i.test(s))? v3y : (Number.isFinite(usdJpy)? v3y/usdJpy : null)) : null;
+    const u1d = Number.isFinite(v1d) ? ((cur==='USD' && !/\.T$/i.test(s))? v1d : (Number.isFinite(usdJpy)? v1d/usdJpy : null)) : null;
     // If nothing to update, skip counting
-    if (!Number.isFinite(v1m) && !Number.isFinite(v3m) && !Number.isFinite(v6m) && !Number.isFinite(v1y) && !Number.isFinite(v3y)) continue;
+    if (!Number.isFinite(v1d) && !Number.isFinite(v1m) && !Number.isFinite(v3m) && !Number.isFinite(v6m) && !Number.isFinite(v1y) && !Number.isFinite(v3y)) continue;
     await env.DB.prepare(
       'INSERT INTO quotes('+
-        'symbol, price_1m, jpy_1m, usd_1m, updated_1m_at, '+
+        'symbol, price_1d, jpy_1d, usd_1d, updated_1d_at, '+
+        'price_1m, jpy_1m, usd_1m, updated_1m_at, '+
         'price_3m, jpy_3m, usd_3m, updated_3m_at, '+
         'price_6m, jpy_6m, usd_6m, updated_6m_at, '+
         'price_1y, jpy_1y, usd_1y, updated_1y_at, '+
         'price_3y, jpy_3y, usd_3y, updated_3y_at'+
-      ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
+      ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
       'ON CONFLICT(symbol) DO UPDATE SET '+
+      'price_1d=COALESCE(excluded.price_1d, price_1d), jpy_1d=COALESCE(excluded.jpy_1d, jpy_1d), usd_1d=COALESCE(excluded.usd_1d, usd_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END, '+
       'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), usd_1m=COALESCE(excluded.usd_1m, usd_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, '+
       'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), usd_3m=COALESCE(excluded.usd_3m, usd_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, '+
       'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), usd_6m=COALESCE(excluded.usd_6m, usd_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, '+
@@ -1070,6 +1075,7 @@ async function refreshBaselines(env, request){
       'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), usd_3y=COALESCE(excluded.usd_3y, usd_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
     ).bind(
       s,
+      Number.isFinite(v1d)? v1d : null, j1d, u1d, Number.isFinite(v1d)? now : null,
       Number.isFinite(v1m)? v1m : null, j1m, u1m, Number.isFinite(v1m)? now : null,
       Number.isFinite(v3m)? v3m : null, j3m, u3m, Number.isFinite(v3m)? now : null,
       Number.isFinite(v6m)? v6m : null, j6m, u6m, Number.isFinite(v6m)? now : null,
