@@ -1,992 +1,457 @@
-/*! konnnichiwa — deployment test marker (preserve in some bundlers) */
-const BUILD_INFO = {
-  marker: 'konnnichiwa',
-  time: new Date().toISOString()
-};
+// Cloudflare Worker to manage portfolio and quotes_new in D1
+// - Endpoints:
+//   - GET    /api/portfolio
+//   - POST   /api/portfolio  JSON {symbol, shares, currency, company_name?}
+//   - DELETE /api/portfolio?symbol=XXXX
+//   - GET    /api/quotes_new
+//   - POST   /api/quotes/refresh         // fetch Yahoo for portfolio symbols + USDJPY=X
+//   - GET    /api/portfolio_with_prices  // join holdings + quotes_new, include JPY values
+
 export default {
   async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
-      // Simple auth guard for write/admin endpoints
-      const isPreflight = request.method === 'OPTIONS';
-      const hasValidKey = () => {
-        const need = (env.API_KEY && String(env.API_KEY).length > 0);
-        if (!need) return true;
-        const got = request.headers.get('x-api-key');
-        return !!got && got === String(env.API_KEY);
-      };
-      const requireKey = () => {
-        if (isPreflight) return false; // allow preflight
-        return !hasValidKey();
-      };
-      if (request.method === 'OPTIONS') {
-        return new Response(null, { headers: corsHeaders() });
-      }
-      if (url.pathname === '/__version') {
-        return json({ ...BUILD_INFO });
-      }
-        // Quotes API: return stored original currency prices and baselines
-        if (url.pathname === '/api/quotes') {
-          if (request.method === 'GET') {
-            try {
-              const { results } = await env.DB.prepare(
-                'SELECT symbol, price, currency, updated_at, ' +
-                'price_1d, updated_1d_at, ' +
-                'price_1m, updated_1m_at, ' +
-                'price_1y, updated_1y_at ' +
-                'FROM quotes ORDER BY symbol'
-              ).all();
-              return json(results);
-            } catch (e) {
-              return json([]);
-            }
-          }
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
-        }
+    const url = new URL(request.url);
+    const { pathname } = url;
 
-        // Quotes_new API: return stored original currency prices and baselines
-        if (url.pathname === '/api/quotes_new') {
-          if (request.method === 'GET') {
-            try {
-              await ensureQuotesSchema(env, 'quotes_new');
-              const { results } = await env.DB.prepare(
-                'SELECT symbol, price, currency, updated_at, ' +
-                'price_1d, updated_1d_at, ' +
-                'price_1m, updated_1m_at, ' +
-                'price_1y, updated_1y_at ' +
-                'FROM quotes_new ORDER BY symbol'
-              ).all();
-              return json(results);
-            } catch (e) {
-              return json([]);
-            }
-          }
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
-        }
-
-        // USDJPY rate API
-        if (url.pathname === '/api/usdjpy') {
-          if (request.method === 'GET') {
-            try { await ensureUsdJpySchema(env); } catch (e) {}
-            try {
-              const { results } = await env.DB.prepare(
-                'SELECT price, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM usd_jpy WHERE id=1'
-              ).all();
-              return json(results[0] || {});
-            } catch (e) {
-              return json({});
-            }
-          }
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
-        }
-      if (url.pathname === '/api/portfolio_with_prices') {
-        if (request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
-        }
-        // ensure holdings has company_name column for join output
-        try {
-          await ensureHoldingsSchema(env);
-        } catch (e) {}
-        // ensure quotes and usd_jpy tables exist
-        try { await ensureQuotesSchema(env); } catch (e) {}
-        try { await ensureUsdJpySchema(env); } catch (e) {}
-        // auto-refresh outdated baselines when report_db accesses data
-        try { await refreshBaselines(env, request); } catch (e) {}
-        try {
-          const { results } = await env.DB.prepare(
-            `SELECT h.symbol,
-                    h.shares,
-                    h.currency AS currency,
-                    h.company_name AS company_name,
-                    q.price,
-                    q.currency AS price_currency,
-                    q.updated_at,
-                    q.price_1d, q.updated_1d_at,
-                    q.price_1m, q.updated_1m_at,
-                    q.price_1y, q.updated_1y_at
-               FROM holdings h
-               LEFT JOIN quotes q ON q.symbol = h.symbol
-               ORDER BY h.symbol`
-          ).all();
-          const fxRow = await env.DB.prepare('SELECT price FROM usd_jpy WHERE id=1').all();
-          const fx = Number(fxRow.results && fxRow.results[0] && fxRow.results[0].price);
-          const enriched = results.map(r => {
-            const cur = String(r.price_currency || r.currency || '').toUpperCase();
-            let usd = null, jpy = null;
-            if (Number.isFinite(r.price)) {
-              if (cur === 'USD') { usd = r.price; jpy = Number.isFinite(fx) ? r.price * fx : null; }
-              else if (cur === 'JPY') { jpy = r.price; usd = Number.isFinite(fx) ? r.price / fx : null; }
-            }
-            const p1d = Number(r.price_1d);
-            const p1m = Number(r.price_1m);
-            const p1y = Number(r.price_1y);
-            const res = { ...r, usd, jpy };
-            const conv = (p, type) => {
-              if (!Number.isFinite(p)) return { j:null, u:null };
-              if (cur === 'USD') return { u:p, j: Number.isFinite(fx)? p*fx : null };
-              if (cur === 'JPY') return { j:p, u: Number.isFinite(fx)? p/fx : null };
-              return { j:null, u:null };
-            };
-            const b1d = conv(p1d);
-            const b1m = conv(p1m);
-            const b1y = conv(p1y);
-            res.usd_1d = b1d.u; res.jpy_1d = b1d.j;
-            res.usd_1m = b1m.u; res.jpy_1m = b1m.j;
-            res.usd_1y = b1y.u; res.jpy_1y = b1y.j;
-            return res;
-          });
-          return json(enriched);
-        } catch (e) {
-          return json({ error: 'server error', detail: String(e) }, 500);
-        }
-      }
-      if (url.pathname === '/api/quotes/refresh') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        // New behavior: run current and baselines refresh sequentially (compat)
-        const a = await refreshCurrent(env, request); // updates price/jpy
-        const b = await refreshBaselines(env, request); // updates 1m/3m/6m/1y/3y
-        return json({ ok: true, updated_current: a.updated, updated_baselines: b.updated });
-      }
-      if (url.pathname === '/api/quotes/refresh-current') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        const r = await refreshCurrent(env, request);
-        return json({ ok: true, updated: r.updated });
-      }
-      if (url.pathname === '/api/quotes/refresh-baselines') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        const r = await refreshBaselines(env, request);
-        return json({ ok: true, updated: r.updated });
-      }
-
-      if (url.pathname === '/api/quotes_new/refresh') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        const a = await refreshCurrent(env, request, 'quotes_new');
-        const b = await refreshBaselines(env, request, 'quotes_new');
-        return json({ ok: true, updated_current: a.updated, updated_baselines: b.updated });
-      }
-      if (url.pathname === '/api/quotes_new/refresh-current') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        const r = await refreshCurrent(env, request, 'quotes_new');
-        return json({ ok: true, updated: r.updated });
-      }
-      if (url.pathname === '/api/quotes_new/refresh-baselines') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        const r = await refreshBaselines(env, request, 'quotes_new');
-        return json({ ok: true, updated: r.updated });
-      }
-      // Admin: reorder DB columns by recreating tables in canonical order
-      if (url.pathname === '/admin/reorder-columns') {
-        if (requireKey()) return json({ error: 'unauthorized' }, 401);
-        if (request.method !== 'POST' && request.method !== 'GET') {
-          return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,OPTIONS' });
-        }
-        try{
-          await reorderHoldings(env);
-        }catch(e){ /* ignore */ }
-        try{
-          await reorderQuotes(env);
-        }catch(e){ /* ignore */ }
-        return json({ ok: true });
-      }
-      if (url.pathname === '/api/portfolio') {
-        if (request.method === 'GET') {
-          try { await ensureHoldingsSchema(env); } catch(e){}
-          const { results } = await env.DB.prepare(
-            'SELECT symbol, shares, currency, company_name FROM holdings ORDER BY symbol'
-          ).all();
-          return json(results);
-        } else if (request.method === 'POST') {
-          if (requireKey()) return json({ error: 'unauthorized' }, 401);
-          const body = await request.json();
-          const sym = String(body.symbol || '').trim();
-          const shares = Number(body.shares);
-          const cur = body.currency ? String(body.currency).trim() : null;
-          const name = body.company_name ? String(body.company_name).trim() : (body.name ? String(body.name).trim() : null);
-          if (!sym) return json({ error: 'symbol required' }, 400);
-          try { await ensureHoldingsSchema(env); } catch(e){}
-          await env.DB.prepare(
-            'INSERT INTO holdings(symbol, shares, currency, company_name) VALUES(?,?,?,?) '
-            + 'ON CONFLICT(symbol) DO UPDATE SET shares=excluded.shares, currency=excluded.currency, company_name=COALESCE(excluded.company_name, company_name)'
-          ).bind(sym, shares, cur, name).run();
-          return json({ ok: true });
-        } else if (request.method === 'DELETE') {
-          if (requireKey()) return json({ error: 'unauthorized' }, 401);
-          const sym = url.searchParams.get('symbol');
-          if (!sym) return json({ error: 'symbol required' }, 400);
-          await env.DB.prepare('DELETE FROM holdings WHERE symbol = ?')
-            .bind(sym)
-            .run();
-          return json({ ok: true });
-        }
-        return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,POST,DELETE,OPTIONS' });
-      } else if (url.pathname === '/' || url.pathname.startsWith('/quote')) {
-        const symsParam = url.searchParams.get('symbols')
-          || url.searchParams.get('s')
-          || url.searchParams.get('symbol')
-          || url.searchParams.get('q');
-        let symbols = [];
-        if (symsParam) {
-          symbols = symsParam.split(',').map(s => s.trim()).filter(Boolean);
-        } else if (/^\/quote\//.test(url.pathname)) {
-          const tail = url.pathname.replace(/^\/quote\//, '');
-          symbols = decodeURIComponent(tail).split(',').map(s => s.trim()).filter(Boolean);
-        }
-        if (!symbols.length) return json({ error: 'missing symbols' }, 400);
-        
-        symbols = [...new Set(symbols.map(s => s.toUpperCase()))];
-
-        const preferStooq = url.searchParams.get('prefer') === 'stooq' || url.searchParams.get('source') === 'stooq';
-        const useFallback = url.searchParams.get('fallback') === 'stooq';
-
-        let quotes = {};
-        if (preferStooq) {
-          // Stooq first
-          try {
-            quotes = await fetchStooq(symbols);
-          } catch (e) {}
-          // Fill missing from Yahoo (only for non-.T symbols to avoid JP mis-currency)
-          const missing = symbols.filter(s => !quotes[s]);
-          const missingNonJpx = missing.filter(s => !/\.T$/i.test(s));
-          if (missingNonJpx.length) {
-            try {
-              const add = await fetchYahoo(missingNonJpx);
-              for (const s of missingNonJpx) { if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
-            } catch (e) {}
-          }
-          // Still missing? allow Yahoo fill even for .T to avoid empty quotes
-          const missingAll = symbols.filter(s => !quotes[s]);
-          if (missingAll.length) {
-            try {
-              const addAll = await fetchYahoo(missingAll);
-              for (const s of missingAll) { if (addAll[s] && quotes[s] == null) quotes[s] = addAll[s]; }
-            } catch (e) {}
-          }
-          // Always ensure USDJPY=X is present by Yahoo if Stooq didn't provide it
-          if (!quotes['USDJPY=X'] && symbols.includes('USDJPY=X')) {
-            try {
-              const y = await fetchYahoo(['USDJPY=X']);
-              if (y['USDJPY=X']) quotes['USDJPY=X'] = y['USDJPY=X'];
-            } catch (e) {}
-          }
-          // Merge prevClose (and currency if missing) from Yahoo for all symbols to enable DoD
-          try {
-            const yall = await fetchYahoo(symbols);
-            for (const s of Object.keys(yall)) {
-              quotes[s] = quotes[s] || {};
-              if (Number.isFinite(yall[s].prevClose)) quotes[s].prevClose = yall[s].prevClose;
-              if (!quotes[s].currency && yall[s].currency) quotes[s].currency = yall[s].currency;
-            }
-          } catch (e) {}
-          // Add 1d / 30d / 365d closes from Yahoo charts
-          try {
-            const bases = await fetchYahooBaselines(symbols);
-            for (const s of Object.keys(bases)) {
-              quotes[s] = quotes[s] || {};
-              if (Number.isFinite(bases[s].prevClose)) quotes[s].prevClose = bases[s].prevClose;
-              if (Number.isFinite(bases[s].prevClose30d)) quotes[s].prevClose30d = bases[s].prevClose30d;
-              if (Number.isFinite(bases[s].prevClose365d)) quotes[s].prevClose365d = bases[s].prevClose365d;
-            }
-          } catch (e) {}
-          // If still empty, fallback to Yahoo for all symbols (last resort)
-          if (Object.keys(quotes).length === 0) {
-            try {
-              quotes = await fetchYahoo(symbols);
-            } catch (e) {}
-          }
-        } else {
-          // Yahoo first
-          try {
-            quotes = await fetchYahoo(symbols);
-          } catch (e) {
-            // swallow; may fallback
-          }
-          // Optional fallback: fill only missing from Stooq
-          if (useFallback) {
-            const missing = symbols.filter(s => !quotes[s]);
-            if (missing.length) {
-              try {
-                const add = await fetchStooq(missing);
-                for (const s of missing) {
-                  if (add[s] && quotes[s] == null) quotes[s] = add[s];
-                }
-              } catch (e) {}
-            }
-          }
-          // Add 1d / 30d / 365d closes from Yahoo charts after Yahoo-first
-          try {
-            const bases = await fetchYahooBaselines(symbols);
-            for (const s of Object.keys(bases)) {
-              quotes[s] = quotes[s] || {};
-              if (Number.isFinite(bases[s].prevClose)) quotes[s].prevClose = bases[s].prevClose;
-              if (Number.isFinite(bases[s].prevClose30d)) quotes[s].prevClose30d = bases[s].prevClose30d;
-              if (Number.isFinite(bases[s].prevClose365d)) quotes[s].prevClose365d = bases[s].prevClose365d;
-            }
-          } catch (e) {}
-        }
-
-        // 3) Normalize USDJPY (invert if necessary), ensure .T as JPY currency
-        if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)) {
-          const r = quotes['USDJPY=X'].regularMarketPrice;
-          if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
-          quotes['USDJPY=X'].currency = 'JPY';
-          quotes['USDJPY=X'].source = quotes['USDJPY=X'].source || 'yahoo';
-        }
-        for (const s of Object.keys(quotes)) {
-          if (/\.T$/i.test(s)) {
-            quotes[s].currency = 'JPY';
-          }
-        }
-
-        // Compute normalized JPY price using USDJPY when needed
-        let usdJpy = quotes['USDJPY=X'] && Number(quotes['USDJPY=X'].regularMarketPrice);
-        if (Number.isFinite(usdJpy) && usdJpy > 0 && usdJpy < 1) usdJpy = 1 / usdJpy;
-        for (const s of Object.keys(quotes)) {
-          const q = quotes[s];
-          const p = Number(q && q.regularMarketPrice);
-          if (!Number.isFinite(p)) continue;
-          const cur = String(q.currency || '').toUpperCase();
-          if (cur === 'JPY' || /\.T$/i.test(s)) {
-            q.jpy = p;
-          } else if (cur === 'USD' && Number.isFinite(usdJpy)) {
-            q.jpy = p * usdJpy;
-          }
-          // Baseline JPY (approx using current FX for USD assets)
-          if (Number.isFinite(q.prevClose)) {
-            q.prevJpy = (cur === 'JPY' || /\.T$/i.test(s)) ? q.prevClose : (Number.isFinite(usdJpy) ? q.prevClose * usdJpy : undefined);
-          }
-          if (Number.isFinite(q.prevClose30d)) {
-            q.prevJpy30d = (cur === 'JPY' || /\.T$/i.test(s)) ? q.prevClose30d : (Number.isFinite(usdJpy) ? q.prevClose30d * usdJpy : undefined);
-          }
-          if (Number.isFinite(q.prevClose365d)) {
-            q.prevJpy365d = (cur === 'JPY' || /\.T$/i.test(s)) ? q.prevClose365d : (Number.isFinite(usdJpy) ? q.prevClose365d * usdJpy : undefined);
-          }
-
-          // Compute DoD/MoM/YoY percent changes in JPY domain if possible
-          const j = Number(q.jpy);
-          const pj1 = Number(q.prevJpy);
-          const pj30 = Number(q.prevJpy30d);
-          const pj365 = Number(q.prevJpy365d);
-          if (Number.isFinite(j) && Number.isFinite(pj1) && pj1 > 0) q.jpyDoD = (j - pj1) / pj1;
-          if (Number.isFinite(j) && Number.isFinite(pj30) && pj30 > 0) q.jpyMoM = (j - pj30) / pj30;
-          if (Number.isFinite(j) && Number.isFinite(pj365) && pj365 > 0) q.jpyYoY = (j - pj365) / pj365;
-
-          // Compute DoD/MoM/YoY percent changes in USD domain
-          const isUSD = (cur === 'USD');
-          const pu = Number(q.regularMarketPrice);
-          const pu1 = Number(q.prevClose);
-          const pu30 = Number(q.prevClose30d);
-          const pu365 = Number(q.prevClose365d);
-          if (isUSD) {
-            if (Number.isFinite(pu) && Number.isFinite(pu1) && pu1 > 0) q.usdDoD = (pu - pu1) / pu1;
-            if (Number.isFinite(pu) && Number.isFinite(pu30) && pu30 > 0) q.usdMoM = (pu - pu30) / pu30;
-            if (Number.isFinite(pu) && Number.isFinite(pu365) && pu365 > 0) q.usdYoY = (pu - pu365) / pu365;
-          } else {
-            // When not USD, ratios are identical across currencies if FX is applied consistently.
-            if (Number.isFinite(q.jpyDoD)) q.usdDoD = q.jpyDoD;
-            if (Number.isFinite(q.jpyMoM)) q.usdMoM = q.jpyMoM;
-            if (Number.isFinite(q.jpyYoY)) q.usdYoY = q.jpyYoY;
-          }
-        }
-
-        return json({ quotes }, 200, { 'Cache-Control': 'public, s-maxage=60, max-age=30' });
-      }
-      // Fundamentals API: manage forecasted net income etc.
-      if (url.pathname === '/api/fundamentals') {
-        if (request.method === 'GET') {
-          try {
-            const { results } = await env.DB.prepare(
-              'SELECT symbol, net_income_forecast, shares_outstanding, currency, fiscal_year, updated_at FROM fundamentals ORDER BY symbol'
-            ).all();
-            return json(results);
-          } catch (e) {
-            // maybe table not exists yet
-            return json([]);
-          }
-        }
-        return json({ error: 'method not allowed' }, 405, { 'Allow': 'GET,OPTIONS' });
-      }
-      return json({ error: 'not found' }, 404);
-    } catch (e) {
-      return json({ error: 'server error', detail: String(e) }, 500);
+    // CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, corsHeaders());
     }
-    return json({ error: 'not found' }, 404);
+
+    try {
+      if (pathname === '/api/portfolio') {
+        if (request.method === 'GET') return listHoldings(env);
+        if (request.method === 'POST') return upsertHolding(request, env);
+        if (request.method === 'DELETE') return deleteHolding(url, env);
+        return notAllowed(['GET', 'POST', 'DELETE']);
+      }
+      if (pathname === '/api/quotes_new') {
+        if (request.method === 'GET') return listQuotesNew(env);
+        return notAllowed(['GET']);
+      }
+      if (pathname === '/api/quotes/refresh' || pathname === '/api/quotes/refresh-current') {
+        if (request.method === 'POST') return refreshQuotes(request, env, url);
+        return notAllowed(['POST']);
+      }
+      if (pathname === '/api/portfolio_with_prices') {
+        if (request.method === 'GET') return portfolioWithPrices(env);
+        return notAllowed(['GET']);
+      }
+      if (pathname === '/api/debug/yahoo') {
+        const syms = (url.searchParams.get('symbols') || '').split(',').map(s=>s.trim()).filter(Boolean);
+        if (!syms.length) return json({error:'symbols required'}, 400);
+        const data = await fetchYahooQuotes(syms);
+        return json({ count: Object.keys(data).length, symbols: Object.keys(data) });
+      }
+
+      return new Response('Not Found', { status: 404, headers: corsHeaders() });
+    } catch (e) {
+      const msg = e && e.stack ? String(e.stack) : String(e);
+      return json({ ok: false, error: msg }, 500);
+    }
+  },
+  async scheduled(event, env, ctx) {
+    // Periodic refresh to keep quotes/baselines warm
+    try {
+      await refreshQuotes(new Request('https://dummy'), env, new URL('https://dummy'));
+    } catch (e) {
+      // ignore; next run will retry
+    }
   }
 };
 
-function corsHeaders(extra = {}) {
+// CORS helper
+function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-    'Content-Type': 'application/json; charset=utf-8',
-    ...extra
+    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   };
 }
 
-function json(obj, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(obj), { status, headers: corsHeaders(extraHeaders) });
+function json(obj, status = 200, headers = {}) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders(), ...headers },
+  });
 }
 
-async function ensureHoldingsSchema(env){
-  // Create if not exists (non-destructive) and add company_name if missing
-  try {
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS holdings (symbol TEXT PRIMARY KEY, company_name TEXT, shares REAL NOT NULL, currency TEXT)')
-      .run();
-  } catch(_){ }
-  try {
-    await env.DB.prepare('ALTER TABLE holdings ADD COLUMN company_name TEXT').run();
-  } catch(_){ /* ignore if exists */ }
+function notAllowed(methods) {
+  return new Response('Method Not Allowed', {
+    status: 405,
+    headers: { ...corsHeaders(), 'Allow': methods.join(', ') },
+  });
 }
 
-// Fundamentals auto-fetch helpers removed by request.
-// Fill null usd/usd_* columns using currency and available FX (Yahoo USDJPY)
-
-async function reorderHoldings(env){
-  // Rename old table; create new with canonical order; copy; drop old
-  try { await env.DB.prepare('ALTER TABLE holdings RENAME TO holdings_old').run(); } catch(_){ /* maybe not exists */ }
-  await env.DB.prepare('CREATE TABLE IF NOT EXISTS holdings (symbol TEXT PRIMARY KEY, company_name TEXT, shares REAL NOT NULL, currency TEXT)').run();
-  try {
-    await env.DB.prepare('INSERT INTO holdings(symbol, company_name, shares, currency) SELECT symbol, company_name, shares, currency FROM holdings_old').run();
-  } catch(_){ }
-  try { await env.DB.prepare('DROP TABLE holdings_old').run(); } catch(_){ }
+async function listHoldings(env) {
+  const rs = await env.DB.prepare(
+    'SELECT symbol, shares, currency, company_name FROM holdings ORDER BY symbol'
+  ).all();
+  return json(rs.results || []);
 }
 
-async function reorderQuotes(env){
-  await ensureQuotesSchema(env);
-  try { await env.DB.prepare('ALTER TABLE quotes RENAME TO quotes_old').run(); } catch(_){ /* not exists */ }
+async function upsertHolding(request, env) {
+  const body = await safeJson(request);
+  const symbol = (body.symbol || '').toString().trim().toUpperCase();
+  if (!symbol) return json({ ok: false, error: 'symbol required' }, 400);
+  const shares = Number(body.shares);
+  if (!Number.isFinite(shares)) return json({ ok: false, error: 'shares must be number' }, 400);
+  const currency = (body.currency || '').toString().trim().toUpperCase() || null;
+  const company_name = (body.company_name || body.name || '').toString().trim() || null;
+
   await env.DB.prepare(
-    'CREATE TABLE IF NOT EXISTS quotes ('+
-    'symbol TEXT PRIMARY KEY, price REAL, currency TEXT, updated_at TEXT, '+
-    'price_1d REAL, updated_1d_at TEXT, '+
-    'price_1m REAL, updated_1m_at TEXT, '+
-    'price_1y REAL, updated_1y_at TEXT)'
-  ).run();
-  try {
-    await env.DB.prepare(
-      'INSERT INTO quotes(symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at) '+
-      'SELECT symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM quotes_old'
-    ).run();
-  } catch(_){ }
-  try { await env.DB.prepare('DROP TABLE quotes_old').run(); } catch(_){ }
+    'INSERT INTO holdings (symbol, shares, currency, company_name) VALUES (?, ?, ?, ?)\n' +
+    'ON CONFLICT(symbol) DO UPDATE SET shares=excluded.shares, currency=excluded.currency, company_name=excluded.company_name'
+  ).bind(symbol, shares, currency, company_name).run();
+
+  return json({ ok: true });
 }
 
-async function fetchYahoo(symbols) {
-  if (!symbols.length) return {};
-  const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
-  const urls = [
-    'https://query2.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(',')),
-    'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','))
-  ];
-  let arr = [];
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, { headers: ua });
-      if (!res.ok) continue;
-      const j = await res.json();
-      arr = (j && j.quoteResponse && j.quoteResponse.result) || [];
-      if (arr.length) break;
-    } catch (e) { /* try next */ }
+async function deleteHolding(url, env) {
+  const symbol = (url.searchParams.get('symbol') || '').toString().trim().toUpperCase();
+  if (!symbol) return json({ ok: false, error: 'symbol required' }, 400);
+  await env.DB.prepare('DELETE FROM holdings WHERE symbol = ?').bind(symbol).run();
+  return json({ ok: true });
+}
+
+async function listQuotesNew(env) {
+  const rs = await env.DB.prepare(
+    'SELECT symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM quotes_new ORDER BY symbol'
+  ).all();
+  return json(rs.results || []);
+}
+
+async function refreshQuotes(request, env, url) {
+  // Allow debug override: symbols from body or query, and dry-run via ?dry=1
+  const body = await safeJson(request);
+  let syms = [];
+  const bodySyms = (Array.isArray(body.symbols) ? body.symbols : (typeof body.symbols === 'string' ? String(body.symbols).split(',') : [])).map(s=>String(s).trim()).filter(Boolean);
+  const querySyms = (url.searchParams.get('symbols') || '').split(',').map(s=>s.trim()).filter(Boolean);
+  const overrideSyms = bodySyms.length ? bodySyms : querySyms;
+  const dry = (String(body.dry ?? url.searchParams.get('dry') ?? '') === '1');
+
+  if (overrideSyms.length) {
+    syms = overrideSyms.map(s=>s.toUpperCase());
+  } else {
+    // load holdings
+    const hr = await env.DB.prepare('SELECT symbol FROM holdings ORDER BY symbol').all();
+    const holdSyms = (hr.results || []).map(r => String(r.symbol).toUpperCase());
+    // include existing quotes_new symbols for backfill of null baselines
+    const qr = await env.DB.prepare('SELECT symbol FROM quotes_new ORDER BY symbol').all();
+    const existSyms = (qr.results || []).map(r => String(r.symbol).toUpperCase());
+    const set = new Set([...holdSyms, ...existSyms]);
+    syms = Array.from(set);
   }
+
+  // include USDJPY=X for FX conversion
+  if (!syms.includes('USDJPY=X')) syms.push('USDJPY=X');
+  const nowIso = new Date().toISOString();
+
+  // Fetch quotes in chunks (Yahoo only)
+  const chunked = chunk(syms, 10);
+  let quotes = {};
+  const chunks = [];
+  for (const ch of chunked) {
+    const detail = { symbols: ch, ok: false, count: 0 };
+    try {
+      const q = await fetchYahooQuotes(ch);
+      Object.assign(quotes, q);
+      detail.ok = true;
+      detail.count = Object.keys(q).length;
+    } catch (e) {
+      detail.error = String(e && e.stack ? e.stack : e);
+    }
+    chunks.push(detail);
+  }
+
+  // Fetch baselines (prevClose, 1m, 1y) from Yahoo chart API
+  // Compute baselines for all requested symbols (not just those returned by /quote)
+  const allSymbols = Array.from(new Set(syms.map(s => String(s).toUpperCase())));
+  const baselineMap = await fetchYahooBaselines(allSymbols);
+
+  // Load existing prices to use as a last-resort fallback for baselines
+  const existingPriceMap = {};
+  try {
+    const er = await env.DB.prepare('SELECT symbol, price FROM quotes_new').all();
+    for (const row of (er.results || [])) {
+      const k = String(row.symbol || '').toUpperCase();
+      const v = toNum(row.price);
+      if (k && Number.isFinite(v)) existingPriceMap[k] = v;
+    }
+  } catch (_) { /* ignore */ }
+
+  // If dry-run, just return what would be inserted
+  if (dry) {
+    const sampleSyms = Object.keys(quotes).slice(0, 3);
+    const sample = sampleSyms.map(s => ({
+      symbol: s,
+      quote: quotes[s],
+      baselines: baselineMap[s] || null,
+    }));
+    return json({ ok: true, dry: true, total: Object.keys(quotes).length, chunks, symbols: syms, sample });
+  }
+
+  // Upsert into quotes_new (price + currency + baselines). Ensure baselines fallback to price when missing.
+  const stmt = env.DB.prepare(
+    'INSERT INTO quotes_new (symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n' +
+    'ON CONFLICT(symbol) DO UPDATE SET ' +
+      'price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at, ' +
+      'price_1d=excluded.price_1d, updated_1d_at=excluded.updated_1d_at, ' +
+      'price_1m=excluded.price_1m, updated_1m_at=excluded.updated_1m_at, ' +
+      'price_1y=excluded.price_1y, updated_1y_at=excluded.updated_1y_at'
+  );
+  for (const sym of allSymbols) {
+    const r = quotes[sym];
+    let price = toNum(r && (r.regularMarketPrice ?? r.price));
+    const ccy = ((r && r.currency) ? String(r.currency).toUpperCase() : guessCurrency(sym));
+    const bl = baselineMap[sym] || {};
+    let prev = toNum(r && (r.regularMarketPreviousClose));
+    const blPrev = toNum(bl.prevClose);
+    const blM1 = toNum(bl.m1);
+    const blY1 = toNum(bl.y1);
+    const blLast = toNum(bl.last);
+    if (!isFinite(price) && isFinite(blLast)) price = blLast;
+    if (!isFinite(price) && Number.isFinite(existingPriceMap[sym])) price = existingPriceMap[sym];
+    if (!isFinite(prev) && isFinite(blPrev)) prev = blPrev;
+    // Fallbacks: fill baselines with current price (or last close) if missing
+    const priceFallback = Number.isFinite(price) ? price : (Number.isFinite(blLast) ? blLast : (Number.isFinite(existingPriceMap[sym]) ? existingPriceMap[sym] : null));
+    const prevVal = isFinite(prev) ? prev : priceFallback;
+    const m1Val = isFinite(blM1) ? blM1 : priceFallback;
+    const y1Val = isFinite(blY1) ? blY1 : priceFallback;
+
+    await stmt.bind(
+      sym,
+      isFinite(price) ? price : null,
+      ccy,
+      nowIso,
+      prevVal,
+      prevVal != null ? nowIso : null,
+      m1Val,
+      m1Val != null ? nowIso : null,
+      y1Val,
+      y1Val != null ? nowIso : null
+    ).run();
+  }
+
+  return json({ ok: true, updated: Object.keys(quotes).length, chunks });
+}
+
+async function portfolioWithPrices(env) {
+  // Get holdings and matched quotes
+  const q1 = await env.DB.prepare(
+    'SELECT h.symbol, h.shares, h.currency AS holding_currency, h.company_name,\n' +
+    '       q.price, q.currency AS price_currency, q.updated_at,\n' +
+    '       q.price_1d, q.price_1m, q.price_1y\n' +
+    'FROM holdings h LEFT JOIN quotes_new q ON q.symbol = h.symbol\n' +
+    'ORDER BY h.symbol'
+  ).all();
+  const rows = q1.results || [];
+
+  // Load FX from quotes_new (USDJPY=X)
+  const fxRow = await env.DB.prepare('SELECT price FROM quotes_new WHERE symbol = ?').bind('USDJPY=X').all();
+  const fx = toNum((fxRow.results && fxRow.results[0] && fxRow.results[0].price));
+
+  const out = [];
+  for (const r of rows) {
+    const sym = String(r.symbol).toUpperCase();
+    const price = toNum(r.price);
+    const ccy = String(r.price_currency || r.holding_currency || '').toUpperCase();
+    let jpy = null, jpy_1d = null, jpy_1m = null, jpy_1y = null;
+    if (ccy === 'JPY' && isFinite(price)) {
+      jpy = price;
+      jpy_1d = toNum(r.price_1d);
+      jpy_1m = toNum(r.price_1m);
+      jpy_1y = toNum(r.price_1y);
+    } else if (ccy === 'USD' && isFinite(price) && isFinite(fx) && fx > 0) {
+      jpy = price * fx;
+      if (isFinite(r.price_1d)) jpy_1d = r.price_1d * fx;
+      if (isFinite(r.price_1m)) jpy_1m = r.price_1m * fx;
+      if (isFinite(r.price_1y)) jpy_1y = r.price_1y * fx;
+    }
+
+    out.push({
+      symbol: sym,
+      company_name: r.company_name || null,
+      shares: toNum(r.shares),
+      currency: String(r.holding_currency || '').toUpperCase() || null,
+      price: isFinite(price) ? price : null,
+      price_currency: ccy || null,
+      jpy: isFinite(jpy) ? jpy : null,
+      jpy_1d: isFinite(jpy_1d) ? jpy_1d : null,
+      jpy_1m: isFinite(jpy_1m) ? jpy_1m : null,
+      jpy_1y: isFinite(jpy_1y) ? jpy_1y : null,
+      updated_at: r.updated_at || null,
+    });
+  }
+  return json(out);
+}
+
+async function safeJson(request) {
+  try { return await request.json(); } catch (_) { return {}; }
+}
+
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function guessCurrency(sym) {
+  if (/\.T$/i.test(sym)) return 'JPY';
+  if (sym === 'USDJPY=X') return 'JPY';
+  return 'USD';
+}
+
+async function fetchYahooQuotes(symbols) {
+  const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols.join(','));
+  const res = await fetch(url, {
+    cf: { cacheTtl: 30, cacheEverything: false },
+    headers: {
+      'Accept': 'application/json',
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+      'Referer': 'https://finance.yahoo.com/',
+      // Pretend to be Mozilla Firefox to reduce risk of blocking
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv=128.0) Gecko/20100101 Firefox/128.0'
+    }
+  });
+  if (!res.ok) throw new Error('Yahoo HTTP ' + res.status);
+  const j = await res.json();
+  const arr = (j && j.quoteResponse && j.quoteResponse.result) || [];
   const out = {};
   for (const r of arr) {
-    if (r && r.symbol && Number.isFinite(r.regularMarketPrice)) {
-      const sym = String(r.symbol).toUpperCase();
-      const obj = { regularMarketPrice: r.regularMarketPrice };
-      if (r.currency) obj.currency = String(r.currency).toUpperCase();
-      if (Number.isFinite(r.regularMarketPreviousClose)) obj.prevClose = r.regularMarketPreviousClose;
-      obj.source = 'yahoo';
-      out[sym] = obj;
-    }
-  }
-  // Ensure prevClose is populated per-symbol via chart when missing
-  const missingPrev = symbols.filter(s => {
-    const sym = String(s).toUpperCase();
-    return out[sym] && !Number.isFinite(out[sym].prevClose);
-  });
-  for (const s of missingPrev) {
-    try {
-      const r = await fetchYahooChart(String(s).toUpperCase());
-      if (r && r.indicators && r.indicators.quote && r.indicators.quote[0]){
-        const closes = r.indicators.quote[0].close || [];
-        const finite = closes.filter(x=>Number.isFinite(x));
-        if (finite.length >= 2) {
-          // previous close = the second latest finite close
-          out[String(s).toUpperCase()].prevClose = finite[finite.length-2];
-        }
-      }
-    } catch (e) {}
-  }
-  // Fallback per-symbol via v8 chart API if batch returned nothing
-  if (!Object.keys(out).length) {
-    for (const s of symbols) {
-      const sym = String(s).toUpperCase();
-      const chartUrls = [
-        `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=1d`,
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=1d`
-      ];
-      for (const cu of chartUrls) {
-        try {
-          const res = await fetch(cu, { headers: ua });
-          if (!res.ok) continue;
-          const j = await res.json();
-          const r = j && j.chart && j.chart.result && j.chart.result[0];
-          if (!r || !r.meta) continue;
-          let price = r.meta.regularMarketPrice;
-          if (!Number.isFinite(price)) {
-            // try last close when meta missing
-            const ind = r.indicators && r.indicators.quote && r.indicators.quote[0];
-            if (ind && Array.isArray(ind.close)) {
-              const closes = ind.close.filter((x)=>Number.isFinite(x));
-              if (closes.length) price = closes[closes.length-1];
-            }
-          }
-          if (Number.isFinite(price)) {
-            const obj = { regularMarketPrice: price, source: 'yahoo' };
-            if (r.meta.currency) obj.currency = String(r.meta.currency).toUpperCase();
-            out[sym] = obj;
-            break;
-          }
-        } catch (e) { /* try next */ }
-      }
-    }
+    if (r && r.symbol) out[String(r.symbol).toUpperCase()] = r;
   }
   return out;
 }
 
-function stooqVariantsForSymbol(sym) {
-  const s = String(sym).toUpperCase();
-  // USDJPY special
-  if (s === 'USDJPY=X') return ['usdjpy', 'USDJPY'];
-  // JP stocks like 8306.T → try multiple forms
-  if (/\.T$/.test(s)) {
-    const base = s.replace(/\.T$/, '');
-    return [
-      base.toLowerCase() + '.jp',
-      base + '.JP',
-      base // sometimes Stooq returns bare code
-    ];
-  }
-  // Default to US
-  return [s.toLowerCase() + '.us', s + '.US', s];
-}
-
-function buildStooqMap(symbols) {
-  const list = [];
-  const map = {}; // stooqSym(lower) -> original
-  for (const sym of symbols) {
-    const variants = stooqVariantsForSymbol(sym);
-    for (const v of variants) {
-      const key = String(v).toLowerCase();
-      if (!map[key]) {
-        map[key] = String(sym).toUpperCase();
-        list.push(v);
-      }
-    }
-  }
-  return { list, map };
-}
-
-function parseStooqCSV(text) {
+// Fetch baselines via Yahoo chart API for given symbols
+// Returns map: SYMBOL -> { prevClose, m1, y1 }
+async function fetchYahooBaselines(symbols){
   const out = {};
-  if (!text) return out;
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length <= 1) return out;
-  lines.shift();
-  for (const line of lines) {
-    if (!line) continue;
-    const cols = line.split(',');
-    const sym = cols[0];
-    const close = parseFloat(cols[6]);
-    if (sym && Number.isFinite(close)) {
-      out[sym.toLowerCase()] = { regularMarketPrice: close };
-    }
-  }
-  return out;
-}
-
-async function fetchStooq(symbols) {
-  if (!symbols.length) return {};
-  const { list: stooqSyms, map: m } = buildStooqMap(symbols);
-  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'text/csv,*/*;q=0.1' };
-  const chunkSize = 30; // avoid too-long URLs
-  const toChunks = (arr, n) => arr.reduce((acc,_,i)=> (i%n? acc: acc.concat([arr.slice(i,i+n)])), []);
-  const chunks = toChunks(stooqSyms, chunkSize);
-
-  async function fetchFromHost(host) {
-    const parsedAll = {};
-    for (const ch of chunks) {
-      const urlHttps = `https://${host}/q/l/?s=` + encodeURIComponent(ch.join(',')) + '&f=sd2t2ohlcv&h&e=csv';
-      const urlHttp  = `http://${host}/q/l/?s=`  + encodeURIComponent(ch.join(',')) + '&f=sd2t2ohlcv&h&e=csv';
-      let ok = false;
-      for (const u of [urlHttps, urlHttp]) {
-        try {
-          const res = await fetch(u, { headers, redirect: 'follow' });
-          if (!res.ok) continue;
-          const txt = await res.text();
-          const p = parseStooqCSV(txt);
-          if (Object.keys(p).length) {
-            Object.assign(parsedAll, p);
-            ok = true;
-            break;
-          }
-        } catch (e) { /* try next url */ }
-      }
-      // continue even if both failed (next chunk)
-    }
-    return parsedAll;
-  }
-
-  // Try stooq.com, then stooq.pl
-  let parsedAll = await fetchFromHost('stooq.com');
-  if (!Object.keys(parsedAll).length) {
-    try { parsedAll = await fetchFromHost('stooq.pl'); } catch (e) {}
-  }
-
-  const out = {};
-  for (const stooqSym of Object.keys(parsedAll)) {
-    const orig = m[stooqSym];
-    if (orig) {
-      out[orig] = { ...parsedAll[stooqSym], source: 'stooq' };
-    }
-  }
-  return out;
-}
-
-function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-
-async function fetchYahooChart(sym, range = '5y') {
-  const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
-  const enc = encodeURIComponent(sym);
-  const urls = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${enc}?range=${encodeURIComponent(range)}&interval=1d`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${enc}?range=${encodeURIComponent(range)}&interval=1d`
-  ];
-  for (const u of urls) {
-    try {
-      const res = await fetch(u, { headers: ua });
-      if (!res.ok) continue;
-      const j = await res.json();
-      const r = j && j.chart && j.chart.result && j.chart.result[0];
-      if (r && r.timestamp && r.indicators && r.indicators.quote && r.indicators.quote[0]) return r;
-    } catch (e) {}
-  }
-  return null;
-}
-
-function pickBaselineAt(r, daysAgo) {
-  try {
-    const ts = r.timestamp || [];
-    const q = (r.indicators && r.indicators.quote && r.indicators.quote[0]) || {};
-    const closes = q.close || [];
-    const now = Math.floor(Date.now()/1000);
-    const cutoff = now - Math.floor(daysAgo*86400);
-    let bestIdx = -1;
-    for (let i=0;i<ts.length;i++){
-      const t = ts[i];
-      const c = closes[i];
-      if (!Number.isFinite(c)) continue;
-      if (t <= cutoff) bestIdx = i; else break;
-    }
-    if (bestIdx >= 0) return closes[bestIdx];
-    for (let i=0;i<closes.length;i++){ if (Number.isFinite(closes[i])) return closes[i]; }
-  } catch(e) {}
-  return undefined;
-}
-
-// Batch baselines via Yahoo Spark API (multiple symbols per request)
-async function fetchYahooSparkBaselines(symbols) {
-  const out = {};
-  if (!symbols.length) return out;
-  const ua = { 'User-Agent': 'Mozilla/5.0 (compatible; pf-worker/1.0)', 'Accept': 'application/json' };
-  const chunkSize = 40; // keep URL length reasonable
-  const toChunks = (arr, n) => arr.reduce((acc,_,i)=> (i%n? acc: acc.concat([arr.slice(i,i+n)])), []);
-  const chunks = toChunks(symbols, chunkSize);
-  function parseAndAcc(j) {
+  for (const s0 of symbols){
+    const s = String(s0).toUpperCase();
     try{
-      const list = (j && j.spark && Array.isArray(j.spark.result)) ? j.spark.result
-                 : (Array.isArray(j && j.result) ? j.result : []);
-      for (const item of list) {
-        try{
-          const sym = String(item.symbol || item.ticker || item.id || (item.meta && item.meta.symbol) || '').toUpperCase();
-          const resp = (item.response && item.response[0]) || item;
-          const ts = resp && resp.timestamp;
-          const q = (resp && resp.indicators && resp.indicators.quote && resp.indicators.quote[0]) || {};
-          const closes = (q && q.close) || [];
-          if (!Array.isArray(ts) || !Array.isArray(closes) || !closes.length) continue;
-          // prev1d: second last finite close
-          let prev1d;
-          for (let k = closes.length - 1, cnt=0; k >= 0; k--) {
-            const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt === 2){ prev1d = c; break; }
-          }
-          const b30 = pickBaselineAt(resp, 30);
-          const b90 = pickBaselineAt(resp, 90);
-          const b180 = pickBaselineAt(resp, 180);
-          const b365 = pickBaselineAt(resp, 365);
-          const b1095 = pickBaselineAt(resp, 1095);
-          if (!out[sym]) out[sym] = {};
-          if (Number.isFinite(prev1d) && out[sym].prevClose == null) out[sym].prevClose = prev1d;
-          if (Number.isFinite(b30) && out[sym].prevClose30d == null) out[sym].prevClose30d = b30;
-          if (Number.isFinite(b90) && out[sym].prevClose90d == null) out[sym].prevClose90d = b90;
-          if (Number.isFinite(b180) && out[sym].prevClose180d == null) out[sym].prevClose180d = b180;
-          if (Number.isFinite(b365) && out[sym].prevClose365d == null) out[sym].prevClose365d = b365;
-          if (Number.isFinite(b1095) && out[sym].prevClose1095d == null) out[sym].prevClose1095d = b1095;
-        }catch(_){ }
-      }
-    }catch(_){ }
-  }
-  for (const ch of chunks) {
-    const sy = encodeURIComponent(ch.join(','));
-    const urls = [
-      `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=5y&interval=1d`,
-      `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${sy}&range=5y&interval=1d`,
-      `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=5y&interval=1d`,
-      `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${sy}&range=5y&interval=1d`
-    ];
-    let ok = false;
-    for (const u of urls) {
-      try{
-        const res = await fetch(u, { headers: ua });
-        if (!res.ok) continue;
-        const j = await res.json();
-        parseAndAcc(j);
-        ok = true;
-        break;
-      }catch(_){ }
-    }
-    if (!ok) {
-      // Fallback to per-symbol chart for this chunk (kept minimal)
-      for (const s of ch) {
-        try{
-          const r = await fetchYahooChart(s);
-          if (!r) continue;
-          const sym = String(s).toUpperCase();
-          if (!out[sym]) out[sym] = {};
-          // prev1d
-          try{
-            const q = r.indicators && r.indicators.quote && r.indicators.quote[0];
-            const closes = (q && q.close) || [];
-            let prev1d;
-            for (let k = closes.length - 1, cnt=0; k >= 0; k--) { const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt===2){ prev1d = c; break; } }
-            if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
-          }catch(_){ }
-          const b30 = pickBaselineAt(r, 30);
-          const b90 = pickBaselineAt(r, 90);
-          const b180 = pickBaselineAt(r, 180);
-          const b365 = pickBaselineAt(r, 365);
-          const b1095 = pickBaselineAt(r, 1095);
-          if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
-          if (Number.isFinite(b90)) out[sym].prevClose90d = b90;
-          if (Number.isFinite(b180)) out[sym].prevClose180d = b180;
-          if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
-          if (Number.isFinite(b1095)) out[sym].prevClose1095d = b1095;
-        }catch(_){ }
-      }
-    }
+      const ch = await fetchYahooChart(s, '2y', '1d');
+      const bl = computeBaselinesFromChart(ch);
+      if (bl) out[s] = bl;
+    }catch(_){ /* ignore per-symbol failure */ }
   }
   return out;
 }
 
-async function fetchYahooBaselines(symbols) {
-  // Try Spark first (few subrequests for many symbols)
-  const out = await fetchYahooSparkBaselines(symbols);
-  // Fallback per-symbol for any still-missing baselines, but cap to avoid subrequest limit (50)
-  const missing = symbols.filter(s => {
-    const v = out[String(s).toUpperCase()] || {};
-    return !(Number.isFinite(v.prevClose) && (
-      Number.isFinite(v.prevClose30d) || Number.isFinite(v.prevClose90d) || Number.isFinite(v.prevClose180d) || Number.isFinite(v.prevClose365d) || Number.isFinite(v.prevClose1095d)
-    ));
+async function fetchYahooChart(symbol, range='2y', interval='1d'){
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) +
+              '?range=' + encodeURIComponent(range) + '&interval=' + encodeURIComponent(interval) + '&includePrePost=false';
+  const res = await fetch(url, {
+    cf: { cacheTtl: 60, cacheEverything: false },
+    headers: {
+      'Accept': 'application/json',
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+      'Referer': 'https://finance.yahoo.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv=128.0) Gecko/20100101 Firefox/128.0'
+    }
   });
-  const limit = Math.min(50, symbols.length); // safe cap respecting Cloudflare subrequest limits
-  for (let i = 0; i < Math.min(limit, missing.length); i++){
-    const s = missing[i];
-    try{
-      const r = await fetchYahooChart(s);
-      if (!r) continue;
-      const sym = String(s).toUpperCase();
-      if (!out[sym]) out[sym] = {};
-      let prev1d;
-      try{
-        const q = r.indicators && r.indicators.quote && r.indicators.quote[0];
-        const closes = (q && q.close) || [];
-        for (let k = closes.length - 1, cnt=0; k >= 0; k--) { const c = closes[k]; if (!Number.isFinite(c)) continue; cnt++; if (cnt===2){ prev1d = c; break; } }
-      }catch(_){ }
-      const b30 = pickBaselineAt(r, 30);
-      const b90 = pickBaselineAt(r, 90);
-      const b180 = pickBaselineAt(r, 180);
-      const b365 = pickBaselineAt(r, 365);
-      const b1095 = pickBaselineAt(r, 1095);
-      if (Number.isFinite(prev1d)) out[sym].prevClose = prev1d;
-      if (Number.isFinite(b30)) out[sym].prevClose30d = b30;
-      if (Number.isFinite(b90)) out[sym].prevClose90d = b90;
-      if (Number.isFinite(b180)) out[sym].prevClose180d = b180;
-      if (Number.isFinite(b365)) out[sym].prevClose365d = b365;
-      if (Number.isFinite(b1095)) out[sym].prevClose1095d = b1095;
-    }catch(_){ }
+  if (!res.ok) throw new Error('Yahoo chart HTTP ' + res.status);
+  const j = await res.json();
+  const r = j && j.chart && j.chart.result && j.chart.result[0];
+  if (!r) throw new Error('Yahoo chart no result for ' + symbol);
+  const ts = (r.timestamp || []).map(t => Number(t) * 1000);
+  const closes = ((r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close) || []).map(v => (v==null ? NaN : Number(v)));
+  return { ts, closes };
+}
+
+function computeBaselinesFromChart(ch){
+  if (!ch || !Array.isArray(ch.ts) || !Array.isArray(ch.closes) || ch.ts.length !== ch.closes.length) return null;
+  const now = Date.now();
+  const target1m = now - 30*24*3600*1000;
+  const target1y = now - 365*24*3600*1000;
+
+  // prevClose: choose last valid close before today (UTC), else last valid
+  let idxPrev = lastIndexBefore(ch.ts, endOfPrevTradingDay(now));
+  let prevClose = valueAtOrEarlier(ch.closes, idxPrev);
+  if (!isFinite(prevClose)) {
+    const lastIdx = lastValidIndex(ch.closes);
+    if (lastIdx >= 0) prevClose = ch.closes[lastIdx];
   }
+
+  // 1M baseline
+  const idx1m = lastIndexBefore(ch.ts, target1m);
+  let m1 = valueAtOrEarlier(ch.closes, idx1m);
+  if (!isFinite(m1)) {
+    // fallback to earliest or last valid
+    const firstIdx = firstValidIndex(ch.closes);
+    const lastIdx = lastValidIndex(ch.closes);
+    m1 = isFinite(ch.closes[idx1m]) ? ch.closes[idx1m] : (firstIdx >= 0 ? ch.closes[firstIdx] : (lastIdx >= 0 ? ch.closes[lastIdx] : NaN));
+  }
+
+  // 1Y baseline
+  const idx1y = lastIndexBefore(ch.ts, target1y);
+  let y1 = valueAtOrEarlier(ch.closes, idx1y);
+  if (!isFinite(y1)) {
+    const firstIdx = firstValidIndex(ch.closes);
+    const lastIdx = lastValidIndex(ch.closes);
+    y1 = isFinite(ch.closes[idx1y]) ? ch.closes[idx1y] : (firstIdx >= 0 ? ch.closes[firstIdx] : (lastIdx >= 0 ? ch.closes[lastIdx] : NaN));
+  }
+
+  const out = {};
+  // latest close for price fallback
+  const lastIdx = lastValidIndex(ch.closes);
+  if (lastIdx >= 0 && Number.isFinite(Number(ch.closes[lastIdx]))) out.last = Number(ch.closes[lastIdx]);
+  if (isFinite(prevClose)) out.prevClose = prevClose;
+  if (isFinite(m1)) out.m1 = m1;
+  if (isFinite(y1)) out.y1 = y1;
   return out;
 }
 
-// ----------------- Refresh helpers (split current / baselines) -----------------
-async function ensureQuotesSchema(env, table = 'quotes'){
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS ${table} (`+
-    'symbol TEXT PRIMARY KEY, price REAL, currency TEXT, updated_at TEXT, '+
-    'price_1d REAL, updated_1d_at TEXT, '+
-    'price_1m REAL, updated_1m_at TEXT, '+
-    'price_1y REAL, updated_1y_at TEXT)'
-  ).run();
-  const addCols = [
-    `ALTER TABLE ${table} ADD COLUMN price_1d REAL`,
-    `ALTER TABLE ${table} ADD COLUMN updated_1d_at TEXT`,
-    `ALTER TABLE ${table} ADD COLUMN price_1m REAL`,
-    `ALTER TABLE ${table} ADD COLUMN updated_1m_at TEXT`,
-    `ALTER TABLE ${table} ADD COLUMN price_1y REAL`,
-    `ALTER TABLE ${table} ADD COLUMN updated_1y_at TEXT`,
-  ];
-  for (const sql of addCols) { try{ await env.DB.prepare(sql).run(); }catch(_){ } }
+function endOfPrevTradingDay(nowMs){
+  // Approx: previous day 23:59:59 local UTC timestamp. Chart uses exchange tz but we use UTC-day heuristic.
+  const d = new Date(nowMs);
+  d.setUTCHours(0,0,0,0);
+  return d.getTime() - 1000; // just before start of today UTC
 }
 
-async function ensureUsdJpySchema(env){
-  await env.DB.prepare(
-    'CREATE TABLE IF NOT EXISTS usd_jpy ('+
-    'id INTEGER PRIMARY KEY, price REAL, updated_at TEXT, '+
-    'price_1d REAL, updated_1d_at TEXT, '+
-    'price_1m REAL, updated_1m_at TEXT, '+
-    'price_1y REAL, updated_1y_at TEXT)'
-  ).run();
-  const addCols = [
-    "ALTER TABLE usd_jpy ADD COLUMN price_1d REAL",
-    "ALTER TABLE usd_jpy ADD COLUMN updated_1d_at TEXT",
-    "ALTER TABLE usd_jpy ADD COLUMN price_1m REAL",
-    "ALTER TABLE usd_jpy ADD COLUMN updated_1m_at TEXT",
-    "ALTER TABLE usd_jpy ADD COLUMN price_1y REAL",
-    "ALTER TABLE usd_jpy ADD COLUMN updated_1y_at TEXT",
-  ];
-  for (const sql of addCols) { try{ await env.DB.prepare(sql).run(); }catch(_){ } }
+function lastIndexBefore(tsArr, targetMs){
+  let lo = 0, hi = tsArr.length - 1, ans = -1;
+  while (lo <= hi){
+    const mid = (lo + hi) >> 1;
+    if (tsArr[mid] <= targetMs){ ans = mid; lo = mid + 1; }
+    else { hi = mid - 1; }
+  }
+  return ans;
 }
 
-async function loadSymbols(env, request){
-  const url = new URL(request.url);
-  const symsParam = url.searchParams.get('symbols') || url.searchParams.get('s') || url.searchParams.get('symbol');
-  if (symsParam){
-    const arr = symsParam.split(',').map(s => s.trim()).filter(Boolean);
-    return Array.from(new Set(arr.map(s => s.toUpperCase())));
+function valueAtOrEarlier(arr, idx){
+  if (idx < 0) {
+    // fallback to first valid value
+    return valueAtOrLater(arr, 0);
   }
-  const { results: holdings } = await env.DB.prepare('SELECT symbol FROM holdings ORDER BY symbol').all();
-  return Array.from(new Set((holdings || []).map(r => String(r.symbol || '').toUpperCase()).filter(Boolean)));
+  for (let i = idx; i >= 0; i--){
+    const v = Number(arr[i]);
+    if (Number.isFinite(v)) return v;
+  }
+  return NaN;
 }
 
-async function refreshCurrent(env, request, table = 'quotes'){
-  const tables = table === 'quotes' ? ['quotes', 'quotes_new'] : [table];
-  let symbols = await loadSymbols(env, request);
-  if (!symbols.length) return { updated: 0 };
-  if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
-  // Fetch current quotes
-  let quotes = {};
-  try { quotes = await fetchYahoo(symbols); } catch (_) {}
-  const missing = symbols.filter(s => !quotes[s]);
-  if (missing.length) {
-    try {
-      const add = await fetchStooq(missing);
-      for (const s of missing) { if (add[s] && quotes[s] == null) quotes[s] = add[s]; }
-    } catch (_) {}
+function valueAtOrLater(arr, idx){
+  for (let i = idx; i < arr.length; i++){
+    const v = Number(arr[i]);
+    if (Number.isFinite(v)) return v;
   }
-  // Ensure prevClose (1d baseline) exists using Yahoo baselines when missing
-  try {
-    const needPrev = symbols.filter(s => quotes[s] && !Number.isFinite(quotes[s].prevClose));
-    if (needPrev.length) {
-      const bases = await fetchYahooBaselines(needPrev);
-      for (const s of Object.keys(bases || {})) {
-        const b = bases[s] || {};
-        if (!quotes[s]) quotes[s] = {};
-        if (Number.isFinite(b.prevClose)) quotes[s].prevClose = b.prevClose;
-      }
-    }
-  } catch (_) {}
-  // Normalize currencies
-  if (quotes['USDJPY=X'] && isFinite(quotes['USDJPY=X'].regularMarketPrice)) {
-    const r = quotes['USDJPY=X'].regularMarketPrice; if (r > 0 && r < 1) quotes['USDJPY=X'].regularMarketPrice = 1 / r;
-    quotes['USDJPY=X'].currency = 'JPY';
-  }
-  for (const s of Object.keys(quotes)) { if (/\.T$/i.test(s)) quotes[s].currency = 'JPY'; }
-  for (const t of tables) { await ensureQuotesSchema(env, t); }
-  await ensureUsdJpySchema(env);
-  const now = new Date().toISOString();
-  let updated = 0;
-  const usdJpyQuote = quotes['USDJPY=X'];
-  if (usdJpyQuote && Number.isFinite(Number(usdJpyQuote.regularMarketPrice))) {
-    const rate = Number(usdJpyQuote.regularMarketPrice);
-    await env.DB.prepare(
-      'INSERT INTO usd_jpy(id, price, updated_at, price_1d, updated_1d_at) VALUES(1, ?, ?, ?, ?) ' +
-      'ON CONFLICT(id) DO UPDATE SET price=excluded.price, updated_at=excluded.updated_at, price_1d=COALESCE(excluded.price_1d, price_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END'
-    ).bind(rate, now, Number.isFinite(usdJpyQuote.prevClose)?usdJpyQuote.prevClose:null, Number.isFinite(usdJpyQuote.prevClose)?now:null).run();
-  }
-  for (const s of symbols) {
-    if (s === 'USDJPY=X') continue;
-    const q = quotes[s]; if (!q) continue;
-    const p = Number(q.regularMarketPrice); if (!Number.isFinite(p)) continue;
-    const cur = String(q.currency || '').toUpperCase() || null;
-    const prev = Number(q.prevClose);
-    for (const t of tables) {
-      await env.DB.prepare(
-        `INSERT INTO ${t}(symbol, price, currency, updated_at, price_1d, updated_1d_at) VALUES(?,?,?,?,?,?) ` +
-        `ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at, price_1d=COALESCE(excluded.price_1d, price_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END`
-      ).bind(s, p, cur, now, Number.isFinite(prev)?prev:null, Number.isFinite(prev)?now:null).run();
-    }
-    updated++;
-  }
-  return { updated };
+  return NaN;
 }
 
-async function refreshBaselines(env, request, table = 'quotes'){
-  const tables = table === 'quotes' ? ['quotes', 'quotes_new'] : [table];
-  const symbols = await loadSymbols(env, request);
-  if (!symbols.length) return { updated: 0 };
-  if (!symbols.includes('USDJPY=X')) symbols.push('USDJPY=X');
-  for (const t of tables) { await ensureQuotesSchema(env, t); }
-  await ensureUsdJpySchema(env);
-  let bases = {};
-  try { bases = await fetchYahooBaselines(symbols); } catch(_){ }
-  const now = new Date().toISOString();
-  let updated = 0;
-  for (const s of symbols){
-    const b = bases && bases[s] || {};
-    const v1m = Number(b.prevClose30d);
-    const v1y = Number(b.prevClose365d);
-    if (!Number.isFinite(v1m) && !Number.isFinite(v1y)) continue;
-    if (s === 'USDJPY=X'){
-      await env.DB.prepare(
-        'INSERT INTO usd_jpy(id, price_1m, price_1y, updated_1m_at, updated_1y_at) VALUES(1, ?, ?, ?, ?) ' +
-        'ON CONFLICT(id) DO UPDATE SET price_1m=COALESCE(excluded.price_1m, price_1m), price_1y=COALESCE(excluded.price_1y, price_1y), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END'
-      ).bind(Number.isFinite(v1m)?v1m:null, Number.isFinite(v1y)?v1y:null, Number.isFinite(v1m)?now:null, Number.isFinite(v1y)?now:null).run();
-      updated++;
-      continue;
-    }
-    for (const t of tables) {
-      await env.DB.prepare(
-        `INSERT INTO ${t}(symbol, price_1m, price_1y, updated_1m_at, updated_1y_at) VALUES(?,?,?,?,?) ` +
-        `ON CONFLICT(symbol) DO UPDATE SET price_1m=COALESCE(excluded.price_1m, price_1m), price_1y=COALESCE(excluded.price_1y, price_1y), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END`
-      ).bind(s, Number.isFinite(v1m)?v1m:null, Number.isFinite(v1y)?v1y:null, Number.isFinite(v1m)?now:null, Number.isFinite(v1y)?now:null).run();
-    }
-    updated++;
-  }
-  return { updated };
+function lastValidIndex(arr){
+  for (let i = arr.length - 1; i >= 0; i--) if (Number.isFinite(Number(arr[i]))) return i;
+  return -1;
 }
+
+function firstValidIndex(arr){
+  for (let i = 0; i < arr.length; i++) if (Number.isFinite(Number(arr[i]))) return i;
+  return -1;
+}
+
+// Note: Stooq fallback removed. Yahoo only.
