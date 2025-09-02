@@ -340,11 +340,26 @@
       // Timestamp
       var last = document.getElementById('pf-lastup'); if(last) last.textContent = '最終更新: ' + dateOnly();
     }
+
+    async function maybeRefreshBaselines(){
+      try{
+        var base = getWorkerBase();
+        if (!base) return;
+        var key = 'PF_BASELINES_REFRESHED_AT';
+        var now = Date.now();
+        var last = Number(localStorage.getItem(key));
+        if (!last || (now - last) >= 86400000){
+          try{ await fetch(base + '/api/quotes/refresh-baselines', { method: 'POST' }); }catch(e){}
+          localStorage.setItem(key, String(now));
+        }
+      }catch(_){ }
+    }
     async function refresh(){
       var btn = document.getElementById('pf-refresh'); if(btn){ btn.disabled=true; btn.textContent='更新中…'; }
       try{
         var base = getWorkerBase();
         if (base) {
+          await maybeRefreshBaselines();
           try{ await fetch(base + '/api/quotes/refresh-current', { method: 'POST' }); }catch(e){}
         }
         await fetchAndRender();
@@ -356,6 +371,7 @@
     }
     async function initialLoad(){
       try{
+        await maybeRefreshBaselines();
         await fetchAndRender();
       }catch(e){
         var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;

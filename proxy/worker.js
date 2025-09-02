@@ -1002,10 +1002,17 @@ async function refreshBaselines(env, request){
     const { results } = await env.DB.prepare('SELECT symbol, updated_1m_at, updated_3m_at, updated_6m_at, updated_1y_at, updated_3y_at FROM quotes').all();
     for (const r of results || []) { existing[String(r.symbol).toUpperCase()] = r; }
   } catch(_){}
-  const today = new Date().toISOString().slice(0,10);
+  const nowTs = Date.now();
   const url = new URL(request.url);
   const force = (url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true');
-  function needUpdate(sym, col){ const row = existing[sym]; const v = row && row[col]; return !v || String(v).slice(0,10) !== today; }
+  function needUpdate(sym, col){
+    const row = existing[sym];
+    const v = row && row[col];
+    if (!v) return true;
+    const t = Date.parse(v);
+    if (!Number.isFinite(t)) return true;
+    return (nowTs - t) >= 86400000; // >=1 day
+  }
   const symbols = force ? symbolsAll : symbolsAll.filter(s => {
     const U = s.toUpperCase();
     return needUpdate(U,'updated_1m_at') || needUpdate(U,'updated_3m_at') || needUpdate(U,'updated_6m_at') || needUpdate(U,'updated_1y_at') || needUpdate(U,'updated_3y_at');
