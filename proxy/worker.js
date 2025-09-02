@@ -28,9 +28,17 @@ export default {
         if (request.method === 'GET') return listQuotesNew(env);
         return notAllowed(['GET']);
       }
+      if (pathname === '/api/quotes_new/refresh-current' || pathname === '/api/quotes_new/refresh-baselines') {
+        if (request.method === 'POST') return refreshQuotes(request, env, url);
+        return notAllowed(['POST']);
+      }
       if (pathname === '/api/quotes/refresh' || pathname === '/api/quotes/refresh-current') {
         if (request.method === 'POST') return refreshQuotes(request, env, url);
         return notAllowed(['POST']);
+      }
+      if (pathname === '/api/usdjpy') {
+        if (request.method === 'GET') return getUsdJpy(env);
+        return notAllowed(['GET']);
       }
       if (pathname === '/api/portfolio_with_prices') {
         if (request.method === 'GET') return portfolioWithPrices(env);
@@ -118,6 +126,14 @@ async function listQuotesNew(env) {
     'SELECT symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM quotes_new ORDER BY symbol'
   ).all();
   return json(rs.results || []);
+}
+
+async function getUsdJpy(env) {
+  const rs = await env.DB.prepare(
+    'SELECT symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM quotes_new WHERE symbol = ?'
+  ).bind('USDJPY=X').all();
+  const row = (rs.results && rs.results[0]) || null;
+  return json(row || {});
 }
 
 async function refreshQuotes(request, env, url) {

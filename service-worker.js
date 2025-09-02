@@ -1,7 +1,7 @@
-const CACHE_NAME = 'pf-cache-v2';
+const CACHE_NAME = 'pf-cache-v3';
 const PRECACHE_URLS = [
   './',
-  './report.html',
+  './report_db.html',
   './manifest.webmanifest'
 ];
 
@@ -30,8 +30,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(fetch(req).catch(() => caches.match(req)));
     return;
   }
-  // Network-first for navigations and report.html to avoid stale app shell
-  if (req.mode === 'navigate' || url.pathname.endsWith('/report.html') || url.pathname.endsWith('report.html')) {
+  // Network-first for navigations and report_db.html to avoid stale app shell
+  if (req.mode === 'navigate' || url.pathname.endsWith('/report_db.html') || url.pathname.endsWith('report_db.html')) {
     event.respondWith(
       fetch(req)
         .then((res) => {
