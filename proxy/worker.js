@@ -1012,7 +1012,6 @@ async function refreshBaselines(env, request){
   // Baselines
   let bases = {};
   try { bases = await fetchYahooBaselines(symbols); } catch(_){ }
-  await ensureQuotesSchema(env);
   const now = new Date().toISOString();
   let updated = 0;
   for (const s of symbols){
@@ -1042,32 +1041,36 @@ async function refreshBaselines(env, request){
     const u1d = Number.isFinite(v1d) ? ((cur==='USD' && !/\.T$/i.test(s))? v1d : (Number.isFinite(usdJpy)? v1d/usdJpy : null)) : null;
     // If nothing to update, skip counting
     if (!Number.isFinite(v1d) && !Number.isFinite(v1m) && !Number.isFinite(v3m) && !Number.isFinite(v6m) && !Number.isFinite(v1y) && !Number.isFinite(v3y)) continue;
-    await env.DB.prepare(
-      'INSERT INTO quotes('+
-        'symbol, price_1d, jpy_1d, usd_1d, updated_1d_at, '+
-        'price_1m, jpy_1m, usd_1m, updated_1m_at, '+
-        'price_3m, jpy_3m, usd_3m, updated_3m_at, '+
-        'price_6m, jpy_6m, usd_6m, updated_6m_at, '+
-        'price_1y, jpy_1y, usd_1y, updated_1y_at, '+
-        'price_3y, jpy_3y, usd_3y, updated_3y_at'+
-      ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
-      'ON CONFLICT(symbol) DO UPDATE SET '+
-      'price_1d=COALESCE(excluded.price_1d, price_1d), jpy_1d=COALESCE(excluded.jpy_1d, jpy_1d), usd_1d=COALESCE(excluded.usd_1d, usd_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END, '+
-      'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), usd_1m=COALESCE(excluded.usd_1m, usd_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, '+
-      'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), usd_3m=COALESCE(excluded.usd_3m, usd_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, '+
-      'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), usd_6m=COALESCE(excluded.usd_6m, usd_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, '+
-      'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), usd_1y=COALESCE(excluded.usd_1y, usd_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, '+
-      'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), usd_3y=COALESCE(excluded.usd_3y, usd_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
-    ).bind(
-      s,
-      Number.isFinite(v1d)? v1d : null, j1d, u1d, Number.isFinite(v1d)? now : null,
-      Number.isFinite(v1m)? v1m : null, j1m, u1m, Number.isFinite(v1m)? now : null,
-      Number.isFinite(v3m)? v3m : null, j3m, u3m, Number.isFinite(v3m)? now : null,
-      Number.isFinite(v6m)? v6m : null, j6m, u6m, Number.isFinite(v6m)? now : null,
-      Number.isFinite(v1y)? v1y : null, j1y, u1y, Number.isFinite(v1y)? now : null,
-      Number.isFinite(v3y)? v3y : null, j3y, u3y, Number.isFinite(v3y)? now : null
-    ).run();
-    updated++;
+    try {
+      await env.DB.prepare(
+        'INSERT INTO quotes('+
+          'symbol, price_1d, jpy_1d, usd_1d, updated_1d_at, '+
+          'price_1m, jpy_1m, usd_1m, updated_1m_at, '+
+          'price_3m, jpy_3m, usd_3m, updated_3m_at, '+
+          'price_6m, jpy_6m, usd_6m, updated_6m_at, '+
+          'price_1y, jpy_1y, usd_1y, updated_1y_at, '+
+          'price_3y, jpy_3y, usd_3y, updated_3y_at'+
+        ') VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '+
+        'ON CONFLICT(symbol) DO UPDATE SET '+
+        'price_1d=COALESCE(excluded.price_1d, price_1d), jpy_1d=COALESCE(excluded.jpy_1d, jpy_1d), usd_1d=COALESCE(excluded.usd_1d, usd_1d), updated_1d_at=CASE WHEN excluded.price_1d IS NOT NULL THEN excluded.updated_1d_at ELSE updated_1d_at END, '+
+        'price_1m=COALESCE(excluded.price_1m, price_1m), jpy_1m=COALESCE(excluded.jpy_1m, jpy_1m), usd_1m=COALESCE(excluded.usd_1m, usd_1m), updated_1m_at=CASE WHEN excluded.price_1m IS NOT NULL THEN excluded.updated_1m_at ELSE updated_1m_at END, '+
+        'price_3m=COALESCE(excluded.price_3m, price_3m), jpy_3m=COALESCE(excluded.jpy_3m, jpy_3m), usd_3m=COALESCE(excluded.usd_3m, usd_3m), updated_3m_at=CASE WHEN excluded.price_3m IS NOT NULL THEN excluded.updated_3m_at ELSE updated_3m_at END, '+
+        'price_6m=COALESCE(excluded.price_6m, price_6m), jpy_6m=COALESCE(excluded.jpy_6m, jpy_6m), usd_6m=COALESCE(excluded.usd_6m, usd_6m), updated_6m_at=CASE WHEN excluded.price_6m IS NOT NULL THEN excluded.updated_6m_at ELSE updated_6m_at END, '+
+        'price_1y=COALESCE(excluded.price_1y, price_1y), jpy_1y=COALESCE(excluded.jpy_1y, jpy_1y), usd_1y=COALESCE(excluded.usd_1y, usd_1y), updated_1y_at=CASE WHEN excluded.price_1y IS NOT NULL THEN excluded.updated_1y_at ELSE updated_1y_at END, '+
+        'price_3y=COALESCE(excluded.price_3y, price_3y), jpy_3y=COALESCE(excluded.jpy_3y, jpy_3y), usd_3y=COALESCE(excluded.usd_3y, usd_3y), updated_3y_at=CASE WHEN excluded.price_3y IS NOT NULL THEN excluded.updated_3y_at ELSE updated_3y_at END'
+      ).bind(
+        s,
+        Number.isFinite(v1d)? v1d : null, j1d, u1d, Number.isFinite(v1d)? now : null,
+        Number.isFinite(v1m)? v1m : null, j1m, u1m, Number.isFinite(v1m)? now : null,
+        Number.isFinite(v3m)? v3m : null, j3m, u3m, Number.isFinite(v3m)? now : null,
+        Number.isFinite(v6m)? v6m : null, j6m, u6m, Number.isFinite(v6m)? now : null,
+        Number.isFinite(v1y)? v1y : null, j1y, u1y, Number.isFinite(v1y)? now : null,
+        Number.isFinite(v3y)? v3y : null, j3y, u3y, Number.isFinite(v3y)? now : null
+      ).run();
+      updated++;
+    } catch (_) {
+      // Ignore individual symbol errors so one failure doesn't halt the batch
+    }
   }
   return { updated };
 }

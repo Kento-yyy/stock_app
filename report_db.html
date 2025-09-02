@@ -437,8 +437,6 @@
     }
     async function initialLoad(){
       try{
-        await maybeRefreshBaselines();
-        await maybeRefreshCurrent();
         await fetchAndRender();
       }catch(e){
         var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;
