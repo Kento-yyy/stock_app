@@ -10,7 +10,8 @@
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const { pathname } = url;
+    // normalize path: strip trailing slashes
+    const pathname = (url.pathname || '/').replace(/\/+$/, '') || '/';
 
     // CORS preflight
     if (request.method === 'OPTIONS') {
@@ -129,11 +130,75 @@ async function listQuotesNew(env) {
 }
 
 async function getUsdJpy(env) {
-  const rs = await env.DB.prepare(
-    'SELECT symbol, price, currency, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM quotes_new WHERE symbol = ?'
-  ).bind('USDJPY=X').all();
-  const row = (rs.results && rs.results[0]) || null;
-  return json(row || {});
+  // Try existing first from dedicated usd_jpy table (id=1)
+  let rs = await env.DB.prepare(
+    'SELECT id, price, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM usd_jpy WHERE id = 1'
+  ).all();
+  let row = (rs.results && rs.results[0]) || null;
+  // If missing or any baseline null, backfill via refresh and/or chart
+  let needsBackfill = !row || row.price == null || row.price_1d == null || row.price_1m == null || row.price_1y == null;
+  if (needsBackfill) {
+    try {
+      const url = new URL('https://dummy');
+      url.searchParams.set('symbols', 'USDJPY=X');
+      await refreshQuotes(
+        new Request('https://dummy', { method: 'POST', body: JSON.stringify({ symbols: ['USDJPY=X'] }), headers: { 'content-type': 'application/json' } }),
+        env,
+        url
+      );
+    } catch (_) { /* ignore */ }
+    // Read again
+    rs = await env.DB.prepare(
+      'SELECT id, price, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at FROM usd_jpy WHERE id = 1'
+    ).all();
+    row = (rs.results && rs.results[0]) || null;
+  }
+
+  // Final sanitize using Yahoo chart as ultimate fallback
+  if (!row) row = { id: 1 };
+  const nowIso = new Date().toISOString();
+  let price = toNum(row.price);
+  let p1d = toNum(row.price_1d);
+  let p1m = toNum(row.price_1m);
+  let p1y = toNum(row.price_1y);
+  let chartLast = NaN, chartPrev = NaN, chartM1 = NaN, chartY1 = NaN;
+  try {
+    const ch = await fetchYahooChart('USDJPY=X', '2y', '1d');
+    const bl = computeBaselinesFromChart(ch) || {};
+    chartLast = toNum(bl.last);
+    chartPrev = toNum(bl.prevClose);
+    chartM1 = toNum(bl.m1);
+    chartY1 = toNum(bl.y1);
+  } catch (_) { /* ignore */ }
+  if (!Number.isFinite(price) && Number.isFinite(chartLast)) price = chartLast;
+  if (!Number.isFinite(p1d) && Number.isFinite(chartPrev)) p1d = chartPrev;
+  if (!Number.isFinite(p1m) && Number.isFinite(chartM1)) p1m = chartM1;
+  if (!Number.isFinite(p1y) && Number.isFinite(chartY1)) p1y = chartY1;
+  const priceFallback = Number.isFinite(price) ? price : (Number.isFinite(chartLast) ? chartLast : null);
+  const out = {
+    id: 1,
+    price: Number.isFinite(price) ? price : null,
+    updated_at: row.updated_at || nowIso,
+    price_1d: Number.isFinite(p1d) ? p1d : priceFallback,
+    updated_1d_at: row.updated_1d_at || nowIso,
+    price_1m: Number.isFinite(p1m) ? p1m : priceFallback,
+    updated_1m_at: row.updated_1m_at || nowIso,
+    price_1y: Number.isFinite(p1y) ? p1y : priceFallback,
+    updated_1y_at: row.updated_1y_at || nowIso,
+  };
+  // If we had to fill any nulls, persist/insert to usd_jpy
+  if (
+    !row || row.price == null || row.price_1d == null || row.price_1m == null || row.price_1y == null ||
+    (out.price_1d != row.price_1d) || (out.price_1m != row.price_1m) || (out.price_1y != row.price_1y) || (out.price != row.price)
+  ) {
+    try {
+      await env.DB.prepare(
+        'INSERT INTO usd_jpy (id, price, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)\n' +
+        'ON CONFLICT(id) DO UPDATE SET price=excluded.price, updated_at=excluded.updated_at, price_1d=excluded.price_1d, updated_1d_at=excluded.updated_1d_at, price_1m=excluded.price_1m, updated_1m_at=excluded.updated_1m_at, price_1y=excluded.price_1y, updated_1y_at=excluded.updated_1y_at'
+      ).bind(out.price, nowIso, out.price_1d, out.updated_1d_at, out.price_1m, out.updated_1m_at, out.price_1y, out.updated_1y_at).run();
+    } catch (_) { /* ignore */ }
+  }
+  return json(out);
 }
 
 async function refreshQuotes(request, env, url) {
@@ -248,6 +313,38 @@ async function refreshQuotes(request, env, url) {
     ).run();
   }
 
+  // Mirror USDJPY=X into dedicated usd_jpy table to avoid nulls and simplify consumers
+  try {
+    const fxSym = 'USDJPY=X';
+    const r = quotes[fxSym];
+    let price = toNum(r && (r.regularMarketPrice ?? r.price));
+    const bl = baselineMap[fxSym] || {};
+    let prev = toNum(r && r.regularMarketPreviousClose);
+    const blPrev = toNum(bl.prevClose);
+    const blM1 = toNum(bl.m1);
+    const blY1 = toNum(bl.y1);
+    const blLast = toNum(bl.last);
+    if (!isFinite(price) && isFinite(blLast)) price = blLast;
+    if (!isFinite(prev) && isFinite(blPrev)) prev = blPrev;
+    const priceFallback = Number.isFinite(price) ? price : (Number.isFinite(blLast) ? blLast : null);
+    const prevVal = isFinite(prev) ? prev : priceFallback;
+    const m1Val = isFinite(blM1) ? blM1 : priceFallback;
+    const y1Val = isFinite(blY1) ? blY1 : priceFallback;
+    await env.DB.prepare(
+      'INSERT INTO usd_jpy (id, price, updated_at, price_1d, updated_1d_at, price_1m, updated_1m_at, price_1y, updated_1y_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)\n' +
+      'ON CONFLICT(id) DO UPDATE SET price=excluded.price, updated_at=excluded.updated_at, price_1d=excluded.price_1d, updated_1d_at=excluded.updated_1d_at, price_1m=excluded.price_1m, updated_1m_at=excluded.updated_1m_at, price_1y=excluded.price_1y, updated_1y_at=excluded.updated_1y_at'
+    ).bind(
+      Number.isFinite(price) ? price : null,
+      nowIso,
+      prevVal,
+      prevVal != null ? nowIso : null,
+      m1Val,
+      m1Val != null ? nowIso : null,
+      y1Val,
+      y1Val != null ? nowIso : null
+    ).run();
+  } catch (_) { /* ignore */ }
+
   return json({ ok: true, updated: Object.keys(quotes).length, chunks });
 }
 
@@ -262,8 +359,8 @@ async function portfolioWithPrices(env) {
   ).all();
   const rows = q1.results || [];
 
-  // Load FX from quotes_new (USDJPY=X)
-  const fxRow = await env.DB.prepare('SELECT price FROM quotes_new WHERE symbol = ?').bind('USDJPY=X').all();
+  // Load FX from usd_jpy table
+  const fxRow = await env.DB.prepare('SELECT price FROM usd_jpy WHERE id = 1').all();
   const fx = toNum((fxRow.results && fxRow.results[0] && fxRow.results[0].price));
 
   const out = [];
