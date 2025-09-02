@@ -49,7 +49,15 @@ class Holding:
 
 def _http_json(url: str, method: str = "GET", data: Optional[dict] = None, timeout: int = 30) -> dict:
     body_bytes: Optional[bytes] = None
-    headers = {"Content-Type": "application/json; charset=utf-8"}
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        # Use a browser-like UA to avoid bot filters on workers.dev
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv=128.0) Gecko/20100101 Firefox/128.0",
+        "Accept": "application/json",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        "Origin": "https://example.org",
+        "Referer": "https://example.org/",
+    }
     if data is not None:
         body_bytes = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(url, data=body_bytes, method=method, headers=headers)
@@ -121,7 +129,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="portfolio.csv を /api/portfolio に同期")
     p.add_argument("--csv", default="portfolio.csv", help="入力CSVのパス")
     p.add_argument("--api", default=DEFAULT_API, help="APIのURL (/api/portfolio)")
-    p.add_argument("--mode", choices=["upsert", "replace"], default="upsert", help="upsert: 追加/更新のみ, replace: CSVに無い銘柄を削除")
+    p.add_argument("--mode", choices=["upsert", "replace"], default="replace", help="replace: CSVに無い銘柄を削除（既定） / upsert: 追加・更新のみ")
     p.add_argument("--dry-run", action="store_true", help="APIを呼ばずに差分のみ表示")
     # Optional: deploy Worker before syncing (so worker.jsの変更もこのコマンドから反映)
     p.add_argument("--deploy", action="store_true", help="同期前に Cloudflare Worker をデプロイする")

@@ -33,7 +33,12 @@ API エンドポイント（例: `https://<your-worker>.workers.dev`）
 - GitHub Pages などで静的ホスティング
 - `report_db.html?api=https://<your-worker>.workers.dev` を開く
   - 初期表示時に `holdings`, `quotes_new`, `usdjpy` を取得して描画
-  - 必要に応じて `更新` ボタンから `/api/quotes_new/refresh-current` をトリガー
+ - 必要に応じて `更新` ボタンから `/api/quotes_new/refresh-current` をトリガー
+
+CSV → DB（置き換えのみ）
+- CSV の内容を D1 の holdings に反映（CSVに無い銘柄は削除）:
+  - `python3 scripts/sync_portfolio_csv.py --csv portfolio.csv --api https://<your-worker>.workers.dev/api/portfolio`
+  - 既定で置き換え動作（--mode replace）になります
 
 実装メモ
 - 取得は Yahoo のみ。Worker からのリクエストには Firefox UA / `Accept-Language: ja,...` / `Referer: https://finance.yahoo.com/` を付与
