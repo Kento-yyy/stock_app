@@ -354,14 +354,26 @@
         }
       }catch(_){ }
     }
+    async function maybeRefreshCurrent(){
+      try{
+        var base = getWorkerBase();
+        if (!base) return;
+        var key = 'PF_CURRENT_REFRESHED_AT';
+        var now = Date.now();
+        var last = Number(localStorage.getItem(key));
+        if (!last || (now - last) >= 60000){
+          try{
+            var r = await fetch(base + '/api/quotes/refresh-current', { method: 'POST' });
+            if (r && r.ok) localStorage.setItem(key, String(now));
+          }catch(e){}
+        }
+      }catch(_){ }
+    }
     async function refresh(){
       var btn = document.getElementById('pf-refresh'); if(btn){ btn.disabled=true; btn.textContent='更新中…'; }
       try{
-        var base = getWorkerBase();
-        if (base) {
-          await maybeRefreshBaselines();
-          try{ await fetch(base + '/api/quotes/refresh-current', { method: 'POST' }); }catch(e){}
-        }
+        await maybeRefreshBaselines();
+        await maybeRefreshCurrent();
         await fetchAndRender();
       }catch(e){
         var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;
@@ -372,6 +384,7 @@
     async function initialLoad(){
       try{
         await maybeRefreshBaselines();
+        await maybeRefreshCurrent();
         await fetchAndRender();
       }catch(e){
         var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;
