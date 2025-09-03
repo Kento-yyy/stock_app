@@ -291,16 +291,19 @@
         if (Number.isFinite(r.per)) { tdPer.textContent = String(r.per.toFixed(1)); tdPer.setAttribute('data-value', String(r.per)); }
         else { tdPer.textContent = ''; tdPer.setAttribute('data-value',''); }
         tr.appendChild(tdPer);
-        tr.appendChild(trNumUSD(r.usdPrice));
-        tr.appendChild(tdPctCell(r.usd1d));
-        tr.appendChild(tdPctCell(r.usd1m));
-        tr.appendChild(tdPctCell(r.usd1y));
-        tr.appendChild(trNumUSD(r.usdValue));
-        tr.appendChild(trNumJPY(r.jpyPrice));
-        tr.appendChild(tdPctCell(r.jpy1d));
-        tr.appendChild(tdPctCell(r.jpy1m));
-        tr.appendChild(tdPctCell(r.jpy1y));
-        tr.appendChild(trNumJPY(r.jpyValue));
+        if(currency==='USD'){
+          tr.appendChild(trNumUSD(r.usdPrice));
+          tr.appendChild(tdPctCell(r.usd1d));
+          tr.appendChild(tdPctCell(r.usd1m));
+          tr.appendChild(tdPctCell(r.usd1y));
+          tr.appendChild(trNumUSD(r.usdValue));
+        } else {
+          tr.appendChild(trNumJPY(r.jpyPrice));
+          tr.appendChild(tdPctCell(r.jpy1d));
+          tr.appendChild(tdPctCell(r.jpy1m));
+          tr.appendChild(tdPctCell(r.jpy1y));
+          tr.appendChild(trNumJPY(r.jpyValue));
+        }
         tbody.appendChild(tr);
         if (Number.isFinite(r.usdValue)) sumUsd += r.usdValue;
         if (Number.isFinite(r.jpyValue)) sumJpy += r.jpyValue;
