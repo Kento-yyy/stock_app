@@ -550,12 +550,19 @@
     function toggleVisibility(){
       var usdEls = document.querySelectorAll('.usd');
       var jpyEls = document.querySelectorAll('.jpy');
+      // Also hide/show header cells to match data columns
+      var usdThs = document.querySelectorAll('th.usd');
+      var jpyThs = document.querySelectorAll('th.jpy');
       if(currency==='USD'){
         usdEls.forEach(e=>e.classList.remove('hide'));
         jpyEls.forEach(e=>e.classList.add('hide'));
+        usdThs.forEach(t=>t.classList.remove('hide'));
+        jpyThs.forEach(t=>t.classList.add('hide'));
       }else{
         jpyEls.forEach(e=>e.classList.remove('hide'));
         usdEls.forEach(e=>e.classList.add('hide'));
+        jpyThs.forEach(t=>t.classList.remove('hide'));
+        usdThs.forEach(t=>t.classList.add('hide'));
       }
     }
     // initial visibility
