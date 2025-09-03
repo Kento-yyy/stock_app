@@ -65,6 +65,7 @@
     currency = c;
     localStorage.setItem('currency', c);
     render();
+    toggleVisibility();
   }
     function getApiBase(){
       try{
@@ -541,6 +542,21 @@
     sel.addEventListener('change', function(){ setCurrency(this.value); });
     var toolbar = document.querySelector('.toolbar');
     toolbar.appendChild(sel);
+
+    // Visibility helper based on selected currency
+    function toggleVisibility(){
+      var usdEls = document.querySelectorAll('.usd');
+      var jpyEls = document.querySelectorAll('.jpy');
+      if(currency==='USD'){
+        usdEls.forEach(e=>e.classList.remove('hide'));
+        jpyEls.forEach(e=>e.classList.add('hide'));
+      }else{
+        jpyEls.forEach(e=>e.classList.remove('hide'));
+        usdEls.forEach(e=>e.classList.add('hide'));
+      }
+    }
+    // initial visibility
+    toggleVisibility();
       initialLoad().then(refresh);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
