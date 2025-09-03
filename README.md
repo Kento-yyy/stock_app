@@ -10,6 +10,7 @@
 - `proxy/wrangler.toml` — Worker の設定（D1 バインド、cron）
 - `schema.sql` — D1 スキーマ（`holdings`, `quotes_new` など）
 - `scripts/` — 補助スクリプト（CSV同期など）
+  - `scripts/d1_backfill_company_names.py` — holdings.company_name の一括補完（D1直更新）
 - `portfolio.csv` — サンプル/運用用CSV（任意）
 
 セットアップ（Workers + D1）
@@ -39,6 +40,18 @@ CSV → DB（置き換えのみ）
 - CSV の内容を D1 の holdings に反映（CSVに無い銘柄は削除）:
   - `python3 scripts/sync_portfolio_csv.py --csv portfolio.csv --api https://<your-worker>.workers.dev/api/portfolio`
   - 既定で置き換え動作（--mode replace）になります
+
+company_name 一括補完（D1 直更新）
+- 前提: `proxy/wrangler.toml` の `[[d1_databases]]` が自分のDB名（例: `stock-db`）になっていること、`wrangler login` 済みであること
+- 実行（コピーしてOK）:
+  1) 任意（フォールバック用）: `python3 -m pip install yfinance`
+  2) 社名補完を実行: `python3 scripts/d1_backfill_company_names.py --db stock-db --proxy-dir proxy`
+  3) 確認: `cd proxy && wrangler d1 execute stock-db --remote --command "SELECT symbol, company_name FROM holdings ORDER BY symbol" --json`
+
+- オプション:
+  - ドライラン: `python3 scripts/d1_backfill_company_names.py --db stock-db --proxy-dir proxy --dry-run`
+  - 既存の社名も含めて上書き: `python3 scripts/d1_backfill_company_names.py --db stock-db --proxy-dir proxy --force`
+
 
 実装メモ
 - 取得は Yahoo のみ。Worker からのリクエストには Firefox UA / `Accept-Language: ja,...` / `Referer: https://finance.yahoo.com/` を付与
