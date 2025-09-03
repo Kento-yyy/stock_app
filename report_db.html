@@ -36,11 +36,11 @@
   th, td {
     padding:8px 10px; white-space:nowrap;
     border-bottom:1px solid #e5e7eb;
-    /* Align numeric cells right, except first column */
-    text-align:right;
+    /* Default left alignment for header and first column */
+    text-align:left;
   }
-  /* First column (symbol) left-aligned */
-  th:first-child, td:first-child { text-align:left; }
+  /* Right‑align all other columns (numeric data) */
+  td:not(:first-child), th:not(:first-child) { text-align:right; }
       th { background:#f3f4f6; text-align:right; user-select:none; font-weight:500; }
       th:first-child, td:first-child { text-align:left; }
      tr:nth-child(even) td { background:#fafafa; }
@@ -53,12 +53,19 @@
       .chg .down { color:#c00; }
       .sortable { cursor:pointer; }
       .sort-indicator { margin-left:6px; color:#888; font-size:11px; }
-      .company-name { color:#888; font-size:12px; margin-left:4px; }
+  .company-name { color:#888; font-size:12px; margin-left:4px; }
+  .hide { display:none; }
     </style>
 <script>
 (function(){
   // Currency selector state
   var currency = localStorage.getItem('currency') || 'USD';
+
+  function setCurrency(c){
+    currency = c;
+    localStorage.setItem('currency', c);
+    render();
+  }
     function getApiBase(){
       try{
         var p = new URLSearchParams(location.search).get('api');
@@ -254,8 +261,8 @@
 
     function clearTbody(t){ if (!t) return; t.innerHTML=''; }
     function trText(text){ var td = document.createElement('td'); td.textContent = text; return td; }
-    function trNumUSD(n){ var td = document.createElement('td'); td.textContent = fmtUSD(n); td.setAttribute('data-value', Number.isFinite(n)? String(n):''); return td; }
-    function trNumJPY(n){ var td = document.createElement('td'); td.textContent = fmtJPY(n); td.setAttribute('data-value', Number.isFinite(n)? String(n):''); return td; }
+    function trNumUSD(n){ var td = document.createElement('td'); td.className='usd'; td.textContent = fmtUSD(n); td.setAttribute('data-value', Number.isFinite(n)? String(n):''); return td; }
+    function trNumJPY(n){ var td = document.createElement('td'); td.className='jpy'; td.textContent = fmtJPY(n); td.setAttribute('data-value', Number.isFinite(n)? String(n):''); return td; }
 
     function renderTable(rows, tbody, totals){
       if (!tbody) return { usd:0, jpy:0 };
@@ -522,7 +529,18 @@
       // wire sorting
       attachSortHandlers(document.getElementById('pf-jp'));
       attachSortHandlers(document.getElementById('pf-us'));
-      var btn = document.getElementById('pf-refresh'); if(btn) btn.addEventListener('click', refresh);
+    var btn = document.getElementById('pf-refresh'); if(btn) btn.addEventListener('click', refresh);
+    // Currency selector UI
+    var sel = document.createElement('select');
+    ['USD','JPY'].forEach(function(c){
+      var opt = document.createElement('option');
+      opt.value=c; opt.textContent=c;
+      if(currency===c) opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', function(){ setCurrency(this.value); });
+    var toolbar = document.querySelector('.toolbar');
+    toolbar.appendChild(sel);
       initialLoad().then(refresh);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
