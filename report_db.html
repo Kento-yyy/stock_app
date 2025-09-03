@@ -50,8 +50,10 @@
       .sort-indicator { margin-left:6px; color:#888; font-size:11px; }
       .company-name { color:#888; font-size:12px; margin-left:4px; }
     </style>
-  <script>
-  (function(){
+<script>
+(function(){
+  // Currency selector state
+  var currency = localStorage.getItem('currency') || 'USD';
     function getApiBase(){
       try{
         var p = new URLSearchParams(location.search).get('api');
