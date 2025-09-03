@@ -1,20 +1,16 @@
-# Python
-__pycache__/
-*.pyc
-
-# Local env and configs
-.env
-config.local.json
-
-# OS/editor
-.DS_Store
-.vscode/
-.idea/
-
-# Cloudflare Wrangler local state & build artifacts
-proxy/.wrangler/
-.wrangler/
-
-# Node dependencies
 node_modules/
-proxy/node_modules/
+
+dist/
+
+*.log
+
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+.DS_Store
+Thumbs.db
+
+AGENTS.md
