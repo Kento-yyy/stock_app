@@ -548,20 +548,24 @@
 
     // Visibility helper based on selected currency
     function toggleVisibility(){
-      // USD column is 4th, JPY column is 10th in both tables
+      // Column indices (1‑based): USD_PRICE=4, USD_VALUE=8, JPY_PRICE=9, JPY_VALUE=13
       const hideUsd = currency !== 'USD';
       const hideJpy = !hideUsd;
 
       ['#pf-jp', '#pf-us'].forEach(tbl=>{
         // data cells
-        document.querySelectorAll(`${tbl} tr td:nth-child(4),${tbl} tr td:nth-child(10)`).forEach((el,idx)=>{
-          if(idx%2===0) el.classList.toggle('hide', hideUsd); // USD col
-          else el.classList.toggle('hide', hideJpy);          // JPY col
+        [4,8].forEach(idx=>{ // USD columns
+          document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.toggle('hide', hideUsd));
+        });
+        [9,13].forEach(idx=>{ // JPY columns
+          document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.toggle('hide', hideJpy));
         });
         // header cells
-        document.querySelectorAll(`${tbl} th:nth-child(4),${tbl} th:nth-child(10)`).forEach((th,idx)=>{
-          if(idx%2===0) th.classList.toggle('hide', hideUsd);
-          else th.classList.toggle('hide', hideJpy);
+        [4,8].forEach(idx=>{
+          document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.toggle('hide', hideUsd));
+        });
+        [9,13].forEach(idx=>{
+          document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.toggle('hide', hideJpy));
         });
       });
     }
