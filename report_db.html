@@ -548,22 +548,22 @@
 
     // Visibility helper based on selected currency
     function toggleVisibility(){
-      var usdEls = document.querySelectorAll('.usd');
-      var jpyEls = document.querySelectorAll('.jpy');
-      // Also hide/show header cells to match data columns
-      var usdThs = document.querySelectorAll('th.usd');
-      var jpyThs = document.querySelectorAll('th.jpy');
-      if(currency==='USD'){
-        usdEls.forEach(e=>e.classList.remove('hide'));
-        jpyEls.forEach(e=>e.classList.add('hide'));
-        usdThs.forEach(t=>t.classList.remove('hide'));
-        jpyThs.forEach(t=>t.classList.add('hide'));
-      }else{
-        jpyEls.forEach(e=>e.classList.remove('hide'));
-        usdEls.forEach(e=>e.classList.add('hide'));
-        jpyThs.forEach(t=>t.classList.remove('hide'));
-        usdThs.forEach(t=>t.classList.add('hide'));
-      }
+      // USD column is 4th, JPY column is 10th in both tables
+      const hideUsd = currency !== 'USD';
+      const hideJpy = !hideUsd;
+
+      ['#pf-jp', '#pf-us'].forEach(tbl=>{
+        // data cells
+        document.querySelectorAll(`${tbl} tr td:nth-child(4),${tbl} tr td:nth-child(10)`).forEach((el,idx)=>{
+          if(idx%2===0) el.classList.toggle('hide', hideUsd); // USD col
+          else el.classList.toggle('hide', hideJpy);          // JPY col
+        });
+        // header cells
+        document.querySelectorAll(`${tbl} th:nth-child(4),${tbl} th:nth-child(10)`).forEach((th,idx)=>{
+          if(idx%2===0) th.classList.toggle('hide', hideUsd);
+          else th.classList.toggle('hide', hideJpy);
+        });
+      });
     }
     // initial visibility
     toggleVisibility();
@@ -600,19 +600,19 @@
       </colgroup>
       <thead>
         <tr>
-          <th class="usd" style="text-align:left">SYMBOL</th>
+          <th style="text-align:left">SYMBOL</th>
           <th>SHARES</th>
           <th>PER</th>
-          <th class="usd">USD_PRICE</th>
+          <th>USD_PRICE</th>
           <th>1D</th>
           <th>1M</th>
           <th>1Y</th>
-          <th class="usd">USD_VALUE</th>
+          <th>USD_VALUE</th>
           <th>JPY_PRICE</th>
           <th>1D</th>
           <th>1M</th>
           <th>1Y</th>
-          <th class="jpy">JPY_VALUE</th>
+          <th>JPY_VALUE</th>
         </tr>
       </thead>
       <tbody></tbody>
