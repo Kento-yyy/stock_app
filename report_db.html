@@ -66,6 +66,10 @@
     localStorage.setItem('currency', c);
     render();
     toggleVisibility();
+    // Refresh data without reloading the page
+    if(typeof refresh === 'function'){
+      refresh();
+    }
   }
     function getApiBase(){
       try{
@@ -516,6 +520,8 @@
         await maybeRefreshBaselines();
         await maybeRefreshCurrent();
         await fetchAndRender();
+        // Re‑apply visibility after new rows are rendered
+        toggleVisibility();
       }catch(e){
         var last2 = document.getElementById('pf-lastup'); if(last2) last2.textContent = '更新失敗: ' + e;
       } finally {
@@ -548,25 +554,32 @@
 
     // Visibility helper based on selected currency
     function toggleVisibility(){
-      // Column indices (1‑based): USD_PRICE=4, USD_VALUE=8, JPY_PRICE=9, JPY_VALUE=13
-      const hideUsd = currency !== 'USD';
-      const hideJpy = !hideUsd;
+      const showUsd = currency === 'USD';
 
       ['#pf-jp', '#pf-us'].forEach(tbl=>{
-        // data cells
-        [4,8].forEach(idx=>{ // USD columns
-          document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.toggle('hide', hideUsd));
+        // Hide all columns first
+        document.querySelectorAll(`${tbl} tr td`).forEach(el=>el.classList.add('hide'));
+        document.querySelectorAll(`${tbl} th`).forEach(th=>th.classList.add('hide'));
+
+        // Always show SYMBOL, SHARES, PER (columns 1‑3)
+        [1,2,3].forEach(idx=>{
+          document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.remove('hide'));
+          document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.remove('hide'));
         });
-        [9,13].forEach(idx=>{ // JPY columns
-          document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.toggle('hide', hideJpy));
-        });
-        // header cells
-        [4,8].forEach(idx=>{
-          document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.toggle('hide', hideUsd));
-        });
-        [9,13].forEach(idx=>{
-          document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.toggle('hide', hideJpy));
-        });
+
+        if(showUsd){
+          // USD columns: 4‑8
+          [4,5,6,7,8].forEach(idx=>{
+            document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.remove('hide'));
+            document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.remove('hide'));
+          });
+        }else{
+          // JPY columns: 9‑13
+          [9,10,11,12,13].forEach(idx=>{
+            document.querySelectorAll(`${tbl} tr td:nth-child(${idx})`).forEach(el=>el.classList.remove('hide'));
+            document.querySelectorAll(`${tbl} th:nth-child(${idx})`).forEach(th=>th.classList.remove('hide'));
+          });
+        }
       });
     }
     // initial visibility
