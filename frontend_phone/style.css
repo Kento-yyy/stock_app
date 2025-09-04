@@ -5,7 +5,7 @@ table {width:100%; border-collapse:collapse; table-layout:fixed;}
 th, td {border:1px solid #ddd; padding:8px; text-align:right; word-wrap:break-word; white-space:nowrap;}
 
 /* Column width adjustments */
-td:first-child, th:first-child {width:25%;}
+td:first-child, th:first-child {width:18%;}
 td:nth-child(2), th:nth-child(2) {width:10%;}
 td:nth-child(3), th:nth-child(3) {width:12%;}
 td:nth-child(4), th:nth-child(4) {width:8%;}
@@ -30,7 +30,7 @@ th {background:#f4f4f4;}
     th, td {font-size: 0.8rem; padding: 6px;}
     /* Narrow columns to fit more content */
     /* Adjust column widths for very narrow screens */
-td:first-child, th:first-child {width: 20%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+td:first-child, th:first-child {width: 16%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 /* Prevent numeric columns from wrapping */
 td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6), td:nth-child(7) {
     white-space: nowrap;
