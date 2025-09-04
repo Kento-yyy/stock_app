@@ -51,3 +51,8 @@ td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6), td:nth-child
     font-size:0.7rem;
     color:#555;
 }
+/* Align total value to the right side of its container */
+#total-value {
+    text-align:right;
+    margin-right:0; /* ensure no extra left padding */
+}
