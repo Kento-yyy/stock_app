@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <title>Stock Portfolio Mobile</title>
+    <!-- Make the page responsive on mobile devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <h1>Stock Portfolio</h1>
+
+    <label for="currency-select">Currency:</label>
+    <select id="currency-select">
+        <option value="USD">USD</option>
+        <option value="JPY" selected>JPY</option>
+    </select>
+
+    <!-- Domestic holdings section -->
+    <section id="domestic-section"><h2>Domestic Portfolio</h2><table>
+        <thead>
+            <tr>
+                <th>Ticker</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>1D</th>
+                <th>1M</th>
+                <th>1Y</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table></section>
+
+    <!-- US holdings section -->
+    <section id="us-section"><h2>US Portfolio</h2><table>
+        <thead>
+            <tr>
+                <th>Ticker</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>1D</th>
+                <th>1M</th>
+                <th>1Y</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table></section>
+
+    <div id="total-section"><h2>Total Value</h2><p id="total-value"></p></div>
+
+    <!-- Debug section omitted for mobile simplicity -->
+
+    <script src="app.js"></script>
+</body>
+</html>
