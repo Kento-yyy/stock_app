@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <title>Stock Portfolio</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <h1>Stock Portfolio</h1>
+
+    <label for="currency-select">Currency:</label>
+    <select id="currency-select">
+        <option value="USD">USD</option>
+        <option value="JPY" selected>JPY</option>
+    </select>
+
+<section id="domestic-section"><h2>Domestic Stocks</h2><table><thead><tr><th>Ticker</th><th>Shares</th><th>Price</th><th>1D</th><th>1M</th><th>1Y</th><th>Value</th></tr></thead><tbody></tbody></table></section>
+<section id="us-section"><h2>US Stocks</h2><table><thead><tr><th>Ticker</th><th>Shares</th><th>Price</th><th>1D</th><th>1M</th><th>1Y</th><th>Value</th></tr></thead><tbody></tbody></table></section>
+    <section id="total-section"><h2>Total Value</h2><p id="total-value"></p></section>
+
+<!-- Debug sections for raw JSON responses -->
+<section id="debug-section">
+  <h3>Raw API Responses</h3>
+  <pre id="portfolio-json" style="background:#f4f4f4;padding:8px;"></pre>
+  <pre id="quotes-json" style="background:#f4f4f4;padding:8px;"></pre>
+  <pre id="usdjpy-json" style="background:#f4f4f4;padding:8px;"></pre>
+  <!-- Simple table for quotes_new -->
+  <!-- Removed per request: no quotes_new table displayed -->
+</section>
+
+    <script src="app.js"></script>
+</body>
+</html>
