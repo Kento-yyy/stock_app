@@ -115,20 +115,23 @@ async function loadData() {
     }
 
     // Attach header click listeners after tables are rendered
-    function attachHeaderHandlers(sectionId, items, state) {
-        const headers = document.querySelectorAll(`#${sectionId} th`);
-        headers.forEach((th, idx) => {
-            th.style.cursor = 'pointer';
-            th.addEventListener('click', () => {
-                if (state.colIndex === idx) state.asc = !state.asc;
-                else { state.colIndex = idx; state.asc = true; }
+function attachHeaderHandlers(sectionId, items, state) {
+    const headers = document.querySelectorAll(`#${sectionId} th`);
+    headers.forEach((th, idx) => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', () => {
+            if (state.colIndex === idx) state.asc = !state.asc;
+            else { state.colIndex = idx; state.asc = true; }
                 sortData(items, state);
                 renderTable(sectionId, items);
+                // Re-render subtotal row after sorting
+                const subtotal = computeGroupSubtotal(items);
+                renderSubtotalRow(sectionId, subtotal);
                 // Recalculate total for all items
                 renderTotal(merged);
-            });
         });
-    }
+    });
+}
 
     // Initial sort and render per section
     const domesticItems = merged.filter(s => isDomestic(s.symbol));
@@ -139,6 +142,11 @@ async function loadData() {
 
     renderTable('domestic-section', domesticItems);
     renderTable('us-section', usItems);
+    // Render subtotals for each group before the overall total
+    const domSubtotal = computeGroupSubtotal(domesticItems, 'domestic');
+    const usSubtotal = computeGroupSubtotal(usItems, 'us');
+    renderSubtotalRow('domestic-section', domSubtotal);
+    renderSubtotalRow('us-section', usSubtotal);
     renderTotal(merged);
 
     // Attach click handlers for sortable headers once tables are rendered
@@ -220,29 +228,66 @@ function renderTable(sectionId, items) {
 function formatPrice(val, cur) {
     if (val == null) return '-';
     const display = Number(val);
+    // Use consistent formatting: two decimals for USD/JPY, none for JPY totals
+    if (cur === 'JPY') {
+        return Math.round(display).toLocaleString();
+    }
     return display.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Helper to compute subtotal for a group of items
+function computeGroupSubtotal(items) {
+    let usdTotal = 0;
+    let jpyTotal = 0;
+    items.forEach(it => {
+        if (!it.price || !it.shares) return;
+        const isDomesticTicker = isDomestic(it.symbol);
+        if (isDomesticTicker) {
+            // Domestic prices stored in JPY
+            jpyTotal += it.price * it.shares;
+            usdTotal += (it.price / usdToJpyRate) * it.shares;
+        } else {
+            // Foreign prices stored in USD
+            usdTotal += it.price * it.shares;
+            jpyTotal += Math.round(it.price * usdToJpyRate * it.shares);
+        }
+    });
+    return {usd: usdTotal, jpy: jpyTotal};
+}
+
+// Render a subtotal row at the end of a table section
+function renderSubtotalRow(sectionId, subtotal) {
+    const tbody = document.querySelector(`#${sectionId} tbody`);
+    const tr = document.createElement('tr');
+    tr.classList.add('subtotal-row');
+    const isJPY = currencySelect.value === 'JPY';
+    const val  = isJPY
+        ? Math.round(subtotal.jpy).toLocaleString()
+        : Number(subtotal.usd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    tr.innerHTML = `<td colspan="6"><strong>Subtotal</strong></td><td>${val}</td>`;
+
+    tbody.appendChild(tr);
+}
+
+// Render the overall total
 function renderTotal(items) {
     const totalEl = document.getElementById('total-value');
     let totalInSelectedCurrency = 0;
-    for (const it of items) {
-        if (!it.price || !it.shares) continue;
+    items.forEach(it => {
+        if (!it.price || !it.shares) return;
         const isDomesticTicker = isDomestic(it.symbol);
-        // Calculate value in selected currency
         if (currencySelect.value === 'JPY') {
             const valJpy = isDomesticTicker
                 ? it.price * it.shares
                 : Math.round(it.price * usdToJpyRate * it.shares);
             totalInSelectedCurrency += valJpy;
         } else {
-            // USD selected
             const valUsd = isDomesticTicker
-                ? it.price / usdToJpyRate * it.shares
+                ? (it.price / usdToJpyRate) * it.shares
                 : it.price * it.shares;
             totalInSelectedCurrency += valUsd;
         }
-    }
+    });
     let display;
     if (currencySelect.value === 'JPY') {
         display = Math.round(totalInSelectedCurrency).toLocaleString();

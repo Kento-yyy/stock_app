@@ -18,3 +18,7 @@ td:first-child, th:first-child {text-align:left;}
 .positive {color:#006600; font-weight:normal;}
 .negative {color:#cc0000; font-weight:normal;}
 th {background:#f4f4f4;}
+/* Prevent subtotal rows from being affected by sorting styles */
+.subtotal-row td, .subtotal-row th {
+    pointer-events: none;
+}

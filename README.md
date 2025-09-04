@@ -29,4 +29,4 @@ All routes are prefixed with `/api`.
    ```
 3. **Open** `http://localhost:8080` in your browser.
 
-The page automatically pulls portfolio, price, and currency data from the worker API and displays it grouped by domestic (ticker ending with `.T`) and US stocks, plus a total value that can be toggled between USD and JPY.
+The page automatically pulls portfolio, price, and currency data from the worker API and displays it grouped by domestic (ticker ending with `.T`) and US stocks. For each group a **sub‑total** is shown in both USD and JPY, followed by an overall total that can be toggled between USD and JPY.
