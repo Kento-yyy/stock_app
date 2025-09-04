@@ -48,6 +48,13 @@ async function loadData() {
     console.log('USD‑JPY response:', usdjpy);
     // The USJPY endpoint returns an object with a `price` field
     usdToJpyRate = usdjpy.price || 1;
+    // Display the rate next to the currency selector
+    const rateEl = document.getElementById('usdjpy-rate');
+    if (rateEl) {
+        // Show as "= <rate>" with two decimal places
+        const formattedRate = usdToJpyRate.toFixed(2);
+        rateEl.textContent = `= ${formattedRate}`;
+    }
 
     // Debug output removed for mobile view – elements not present
 
@@ -253,8 +260,8 @@ function renderQuotesNewTable(quotes) {
 
     const table = document.createElement('table');
     const thead = document.createElement('thead');
-    // Show symbol and update timestamps for each period
-    thead.innerHTML = `<tr><th>Symbol</th><th>Updated</th><th>Updated 1D</th><th>Updated 1M</th><th>Updated 1Y</th></tr>`;
+    // Show only symbol and overall updated timestamp
+    thead.innerHTML = `<tr><th>Symbol</th><th>Updated</th></tr>`;
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
@@ -268,10 +275,7 @@ function renderQuotesNewTable(quotes) {
             return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
         tr.innerHTML = `<td>${q.symbol}</td>` +
-            `<td>${q.updated_at ? new Date(q.updated_at).toLocaleString() : '-'}</td>` +
-            `<td>${q.updated_1d_at ? new Date(q.updated_1d_at).toLocaleString() : '-'}</td>` +
-            `<td>${q.updated_1m_at ? new Date(q.updated_1m_at).toLocaleString() : '-'}</td>` +
-            `<td>${q.updated_1y_at ? new Date(q.updated_1y_at).toLocaleString() : '-'}</td>`;
+            `<td>${q.updated_at ? new Date(q.updated_at).toLocaleString() : '-'}</td>`;
         tbody.appendChild(tr);
     }
     table.appendChild(tbody);
