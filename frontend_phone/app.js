@@ -11,6 +11,7 @@ async function fetchJson(url) {
     return res.json();
 }
 
+
 function isDomestic(symbol) {
     if (typeof symbol !== 'string') return false;
     // Japanese tickers often end with .T
@@ -51,7 +52,8 @@ async function loadData() {
     // Debug output removed for mobile view – elements not present
 
     // Render simple quotes_new table
-    // renderQuotesTable(quotes);  // removed table from UI
+    // Render a separate section for raw quote data (quotes_new)
+    renderQuotesNewTable(quotes);
 
     const merged = holdings.map(h => {
         const q = quotes.find(q => q.symbol === h.symbol) || {};
@@ -238,6 +240,43 @@ function formatPrice(val, cur) {
     return display.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Render a simple table of raw quotes_new data below the total value.
+function renderQuotesNewTable(quotes) {
+    const container = document.getElementById('quotes-new-table');
+    if (!container) return;
+    // Clear previous content
+    container.innerHTML = '';
+
+    const title = document.createElement('h3');
+    title.textContent = 'Raw Quote Data (quotes_new)';
+    container.appendChild(title);
+
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    // Show symbol and update timestamps for each period
+    thead.innerHTML = `<tr><th>Symbol</th><th>Updated</th><th>Updated 1D</th><th>Updated 1M</th><th>Updated 1Y</th></tr>`;
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const q of quotes) {
+        const tr = document.createElement('tr');
+        // Use same formatting helpers as above
+        const fmtVal = (v, cur) => {
+            if (v == null) return '-';
+            const num = Number(v);
+            if (cur === 'JPY') return Math.round(num).toLocaleString();
+            return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+        tr.innerHTML = `<td>${q.symbol}</td>` +
+            `<td>${q.updated_at ? new Date(q.updated_at).toLocaleString() : '-'}</td>` +
+            `<td>${q.updated_1d_at ? new Date(q.updated_1d_at).toLocaleString() : '-'}</td>` +
+            `<td>${q.updated_1m_at ? new Date(q.updated_1m_at).toLocaleString() : '-'}</td>` +
+            `<td>${q.updated_1y_at ? new Date(q.updated_1y_at).toLocaleString() : '-'}</td>`;
+        tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+}
 // Helper to compute subtotal for a group of items
 function computeGroupSubtotal(items) {
     let usdTotal = 0;
