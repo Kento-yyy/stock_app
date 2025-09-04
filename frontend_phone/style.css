@@ -1,4 +1,6 @@
-body {font-family: Arial, sans-serif; margin: 20px;}
+h1 {text-align:center;}
+/* Slightly smaller default font */
+body {font-family: Arial, sans-serif; margin: 20px; font-size: 14px;}
 h1 {text-align:center;}
 section {margin-top:20px;}
 table {width:100%; border-collapse:collapse; table-layout:fixed;}
@@ -27,7 +29,7 @@ th {background:#f4f4f4;}
     body {margin: 10px;}
     h1 {font-size: 1.4rem;}
     /* Reduce table font size for cramped screens */
-    th, td {font-size: 0.8rem; padding: 6px;}
+    th, td {font-size: 0.75rem; padding: 5px;}
     /* Narrow columns to fit more content */
     /* Adjust column widths for very narrow screens */
 td:first-child, th:first-child {width: 16%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
