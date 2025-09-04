@@ -18,9 +18,14 @@ function isDomestic(symbol) {
 }
 
 async function loadData() {
-    // Use apiBase for all API requests so the frontend can target a remote
-    // worker by adding ?api=<url> query param.  If no param is provided,
-    // location.origin (the same origin) will be used.
+
+    // リフレッシュは裏で走らせる（待たない）
+    fetch(`${apiBase}/api/quotes/refresh-current`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+    }).catch(e => console.error("Refresh error:", e));
+
+    // 表示用データはすぐ取得して描画
     let holdings, quotes, usdjpy;
     try {
         [holdings, quotes, usdjpy] = await Promise.all([
@@ -33,6 +38,8 @@ async function loadData() {
         document.getElementById('total-value').textContent = 'Error loading data';
         return;
     }
+
+
 
     // Debug: log raw responses to console
     console.log('Portfolio response:', holdings);

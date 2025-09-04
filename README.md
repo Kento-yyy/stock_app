@@ -30,3 +30,32 @@ All routes are prefixed with `/api`.
 3. **Open** `http://localhost:8080` in your browser.
 
 The page automatically pulls portfolio, price, and currency data from the worker API and displays it grouped by domestic (ticker ending with `.T`) and US stocks. For each group a **sub‑total** is shown in both USD and JPY, followed by an overall total that can be toggled between USD and JPY.
+
+## D1 Database Operations Summary
+
+The Cloudflare Workers API exposes a small set of endpoints that allow you to read and write the data stored in the D1 database. Below is a quick reference for each operation, including the HTTP method, path, required/optional parameters, and what the endpoint does.
+
+| Operation | Method & Path | Parameters / Body | Effect |
+|-----------|---------------|-------------------|--------|
+| **Add or update a holding** | `POST /api/portfolio` | JSON body: `{symbol, shares, currency, company_name?}` | Creates the row if it doesn’t exist; otherwise updates the existing record. |
+| **Delete a holding** | `DELETE /api/portfolio?symbol=XYZ` | Query string `symbol` | Removes that ticker from the `holdings` table. |
+| **Retrieve all holdings** | `GET /api/portfolio` | – | Returns an array of all rows in the `holdings` table. |
+| **Refresh price data (all or specific tickers)** | `POST /api/quotes/refresh` | Optional query: `symbols=AAPL,7203.T&dry=1` | Pulls latest Yahoo prices for the specified symbols; if no symbols are provided it refreshes all holdings. The `dry=1` flag performs a dry‑run without writing to the DB. |
+| **Retrieve all price data** | `GET /api/quotes_new` | – | Returns an array of all rows in the `quotes_new` table (latest prices and reference values). |
+| **Retrieve combined portfolio + prices** | `GET /api/portfolio_with_prices` | – | Joins `holdings` with `quotes_new`, returning each holding enriched with current price, currency, and JPY conversion. |
+| **Get USD↔JPY rate** | `GET /api/usdjpy` | – | Returns the latest USD‑to‑JPY exchange rate stored in the `usdjpy` table. |
+
+### Automatic Refresh
+The worker is configured with a cron trigger (`*/15 * * * *`). Every 15 minutes it automatically runs `POST /api/quotes/refresh` for all tickers in `holdings`. No manual action is required.
+
+**Note:** Whenever the front‑end or any new feature is added, remember to update **README.md** with usage instructions and commit that change alongside the code. This keeps documentation in sync with the repository state.
+
+### Direct SQL (Admin / Debug)
+For one‑off queries or administrative edits you can use Wrangler’s D1 execute command:
+
+```bash
+wrangler d1 execute <db-name> --remote
+# Example queries
+SELECT * FROM holdings;
+UPDATE holdings SET shares = 100 WHERE symbol='AAPL';
+```
