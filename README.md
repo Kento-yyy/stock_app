@@ -58,7 +58,7 @@ The Cloudflare Workers API exposes a small set of endpoints that allow you to re
 | **Get USD↔JPY rate** | `GET /api/usdjpy` | – | Returns the latest USD‑to‑JPY exchange rate stored in the `usdjpy` table. |
 
 ### Automatic Refresh
-The worker is configured with a cron trigger (`*/15 * * * *`). Every 15 minutes it automatically runs `POST /api/quotes/refresh` for all tickers in `holdings`. No manual action is required.
+The worker is configured with a cron trigger (`*/5 * * * *`). Every 5 minutes it automatically runs `POST /api/quotes/refresh` for all tickers in `holdings`. No manual action is required.
 
 **Note:** Whenever the front‑end or any new feature is added, remember to update **README.md** with usage instructions and commit that change alongside the code. This keeps documentation in sync with the repository state.
 

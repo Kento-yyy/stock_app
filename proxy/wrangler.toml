@@ -5,7 +5,7 @@ compatibility_date = "2024-04-19"
 ## fundamentals are no longer fetched via external APIs; no vars needed here
 
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/5 * * * *"]
 
 [[d1_databases]]
 # Replace with your actual D1 database name and ID
