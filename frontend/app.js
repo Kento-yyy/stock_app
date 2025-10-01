@@ -98,11 +98,13 @@ async function loadData() {
                 : item.price * item.shares;
         }
 
-        // The header order: Ticker, Shares, Price, 1D, 1M, 1Y, Value
+        // The header order: Ticker, Shares, Price, Rate, 1D, 1M, 1Y, Value
+        const rateSortValue = item.currency === 'JPY' ? 0 : usdToJpyRate;
         const keys = [
             item.symbol,
             item.shares,
             item.price,
+            rateSortValue,
             // Percent change columns (computed)
             item.pct_1d != null ? Number(item.pct_1d) : -Infinity,
             item.pct_1m != null ? Number(item.pct_1m) : -Infinity,
@@ -209,6 +211,8 @@ function renderTable(sectionId, items) {
             return `<span class="${cls}">${pct}%</span>`;
         };
 
+        // Render a rate column next to the native currency price.
+        const rateDisplay = item.currency === 'JPY' ? '-' : Math.round(usdToJpyRate).toLocaleString();
         tr.innerHTML = `<td>${item.symbol}<span style="font-size:0.8em;color:#888;">${companyName}</span></td>` +
             `<td>${item.shares}</td>` +
             `<td>${
@@ -216,6 +220,7 @@ function renderTable(sectionId, items) {
                 ? Math.round(item.price).toLocaleString()
                 : Number(item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             }</td>` +
+            `<td>${rateDisplay}</td>` +
             `<td>${fmtPercent(pct1d)}</td>` +
             `<td>${fmtPercent(pct1m)}</td>` +
             `<td>${fmtPercent(pct1y)}</td>` +
@@ -271,7 +276,7 @@ function renderSubtotalRow(sectionId, subtotal) {
     const val  = isJPY
         ? Math.round(subtotal.jpy).toLocaleString()
         : Number(subtotal.usd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    tr.innerHTML = `<td colspan="6"><strong>Subtotal</strong></td><td>${val}</td>`;
+    tr.innerHTML = `<td colspan="7"><strong>Subtotal</strong></td><td>${val}</td>`;
 
     tbody.appendChild(tr);
 }

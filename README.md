@@ -29,7 +29,19 @@ All routes are prefixed with `/api`.
    ```
 3. **Open** `http://localhost:8080` in your browser.
 
-The page automatically pulls portfolio, price, and currency data from the worker API and displays it grouped by domestic (ticker ending with `.T`) and US stocks. For each group a **sub‑total** is shown in both USD and JPY, followed by an overall total that can be toggled between USD and JPY.
+### Maintaining `portfolio.csv`
+
+Edit the root‐level `portfolio.csv` when you need to adjust holdings. The file now has four columns and should look like:
+
+```
+symbol,shares,currency,company_name
+ARM,14,USD,Arm Holdings plc
+...
+```
+
+Run `python3 scripts/sync_portfolio_csv.py --mode replace` after saving to push the latest shares, currency, and company names to `/api/portfolio`, which persists them in D1.
+
+The page automatically pulls portfolio, price, and currency data from the worker API and displays it grouped by domestic (ticker ending with `.T`) and US stocks. Each table shows ticker, shares, native price, the USD↔JPY rate (for foreign holdings), 1D/1M/1Y changes, and the value in the selected currency. For each group a **sub-total** is shown in both USD and JPY, followed by an overall total that can be toggled between USD and JPY.
 
 ## D1 Database Operations Summary
 
