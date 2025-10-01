@@ -156,13 +156,16 @@ function attachHeaderHandlers(sectionId, items, state) {
     renderTable('domestic-section', domesticItems);
     renderTable('us-section', usItems);
     // Render subtotals for each group before the overall total
-    // Subtotals are not shown in mobile view; skip rendering
+    const domSubtotal = computeGroupSubtotal(domesticItems);
+    const usSubtotal = computeGroupSubtotal(usItems);
+    renderSubtotalRow('domestic-section', domSubtotal);
+    renderSubtotalRow('us-section', usSubtotal);
     renderTotal(merged);
 
     // Attach click handlers for sortable headers once tables are rendered
     // Use single portfolio section for both domestic and US items
-    attachHeaderHandlers('domestic-section', domesticItems, { colIndex: 0, asc: true });
-    attachHeaderHandlers('us-section', usItems, { colIndex: 0, asc: true });
+    attachHeaderHandlers('domestic-section', domesticItems, sortStateDomestic);
+    attachHeaderHandlers('us-section', usItems, sortStateUs);
 
     console.log("=== merged holdings ===");
     console.table(merged);
