@@ -1,26 +1,26 @@
-symbol,shares,currency
-ARM,14,USD
-CDNS,4,USD
-MCD,5,USD
-MRVL,33,USD
-NVDA,28,USD
-QCOM,15,USD
-SBUX,15,USD
-SNPS,2,USD
-TSM,28,USD
-AMD,22,USD
-AVGO,13,USD
-INTC,0,USD
-3048.T,100,JPY
-7513.T,100,JPY
-8591.T,100,JPY
-8963.T,10,JPY
-8985.T,11,JPY
-9432.T,2800,JPY
-7203.T,300,JPY
-8306.T,500,JPY
-8316.T,100,JPY
-9201.T,300,JPY
-9202.T,200,JPY
-6526.T,0,JPY
-7269.T,0,JPY
+symbol,shares,currency,company_name
+ARM,14,USD,Arm Holdings plc
+CDNS,4,USD,"Cadence Design Systems, Inc."
+MCD,5,USD,McDonald's Corporation
+MRVL,33,USD,"Marvell Technology, Inc."
+NVDA,28,USD,NVIDIA Corporation
+QCOM,15,USD,QUALCOMM Incorporated
+SBUX,15,USD,Starbucks Corporation
+SNPS,2,USD,"Synopsys, Inc."
+TSM,28,USD,Taiwan Semiconductor Manufacturing Company Limited
+AMD,22,USD,"Advanced Micro Devices, Inc."
+AVGO,13,USD,Broadcom Inc.
+INTC,0,USD,Intel Corporation
+3048.T,100,JPY,Bic Camera Inc.
+7513.T,100,JPY,"Kojima Co., Ltd."
+8591.T,100,JPY,ORIX Corporation
+8963.T,10,JPY,Invincible Investment Corporation
+8985.T,11,JPY,Japan Hotel REIT Investment Corporation
+9432.T,2800,JPY,"NTT, Inc."
+7203.T,300,JPY,Toyota Motor Corporation
+8306.T,500,JPY,"Mitsubishi UFJ Financial Group, Inc."
+8316.T,100,JPY,"Sumitomo Mitsui Financial Group, Inc."
+9201.T,300,JPY,"Japan Airlines Co., Ltd."
+9202.T,200,JPY,ANA Holdings Inc.
+6526.T,19.153,JPY,Socionext Inc.
+7269.T,0,JPY,Suzuki Motor Corporation
